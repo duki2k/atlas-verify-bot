@@ -31,13 +31,8 @@ def split_text(text: str, limit: int = 3900) -> list[str]:
     return chunks or [""]
 
 
-def make_embeds(
-    *,
-    title: str,
-    text: str,
-    color: int,
-    footer: str,
-) -> list[discord.Embed]:
+# ✅ Agora aceita por posição OU por nome
+def make_embeds(title: str, text: str, color: int, footer: str) -> list[discord.Embed]:
     parts = split_text(text)
     embeds: list[discord.Embed] = []
 
