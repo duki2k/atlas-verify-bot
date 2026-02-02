@@ -13,7 +13,7 @@ def _clean_int(raw: str | None) -> str | None:
     if raw is None:
         return None
     raw = raw.strip()
-    raw = raw.lstrip("= ")  # evita crash por "=123..."
+    raw = raw.lstrip("= ")
     return raw if raw != "" else None
 
 
@@ -34,6 +34,13 @@ def _get_str(name: str, default: str | None = None) -> str | None:
     return v
 
 
+def _get_bool(name: str, default: bool = False) -> bool:
+    v = (_get_str(name, None) or "").strip().lower()
+    if v == "":
+        return default
+    return v in ("1", "true", "yes", "y", "on")
+
+
 @dataclass(frozen=True)
 class Settings:
     discord_token: str
@@ -44,7 +51,7 @@ class Settings:
     rules_channel_id: int | None
     log_channel_id: int | None
 
-    # ✅ novos canais clicáveis
+    # canais clicáveis (opcional)
     news_channel_id: int | None
     assets_channel_id: int | None
     education_channel_id: int | None
@@ -53,6 +60,7 @@ class Settings:
 
     verified_role_id: int
     min_account_age_days: int
+    require_avatar: bool  # ✅ novo
 
     embed_footer: str
 
@@ -81,7 +89,6 @@ def load_settings() -> Settings:
         rules_channel_id=_get_int("RULES_CHANNEL_ID", None),
         log_channel_id=_get_int("LOG_CHANNEL_ID", None),
 
-        # ✅ novos canais clicáveis
         news_channel_id=_get_int("NEWS_CHANNEL_ID", None),
         assets_channel_id=_get_int("ASSETS_CHANNEL_ID", None),
         education_channel_id=_get_int("EDUCATION_CHANNEL_ID", None),
@@ -90,6 +97,7 @@ def load_settings() -> Settings:
 
         verified_role_id=verified_role_id,
         min_account_age_days=_get_int("MIN_ACCOUNT_AGE_DAYS", 0) or 0,
+        require_avatar=_get_bool("REQUIRE_AVATAR", False),
 
         embed_footer=_get_str("EMBED_FOOTER", "Atlas Community") or "Atlas Community",
 
@@ -103,16 +111,9 @@ def load_settings() -> Settings:
             "👋 Bem-vindo(a), {member}!\n\nPara liberar acesso, vá em {verify_channel} e clique no botão ✅.",
         )),
 
-        # Placeholders suportados:
+        # Placeholders:
         # {member_role} {rules_channel}
         # {news_channel} {assets_channel} {education_channel} {chat_channel} {support_channel}
-        pinned_welcome_text=_norm(_get_str(
-            "PINNED_WELCOME_TEXT",
-            "🎉 Seja bem-vindo(a) à Atlas Community!\n\n📌 Cargo: {member_role}\n📌 Leia {rules_channel} antes de postar.",
-        )),
-
-        pinned_rules_text=_norm(_get_str(
-            "PINNED_RULES_TEXT",
-            "📌 Regras do servidor (fixado).\n\nRespeito acima de tudo.",
-        )),
+        pinned_welcome_text=_norm(_get_str("PINNED_WELCOME_TEXT", "")),
+        pinned_rules_text=_norm(_get_str("PINNED_RULES_TEXT", "")),
     )
