@@ -46,6 +46,9 @@ class Settings:
     discord_token: str
     guild_id: int | None
 
+    # ✅ novo: canal onde comandos são permitidos
+    admin_channel_id: int | None
+
     verify_channel_id: int | None
     welcome_channel_id: int | None
     rules_channel_id: int | None
@@ -82,6 +85,9 @@ def load_settings() -> Settings:
     return Settings(
         discord_token=token,
         guild_id=_get_int("GUILD_ID", None),
+
+        # ✅ novo
+        admin_channel_id=_get_int("ADMIN_CHANNEL_ID", None),
 
         verify_channel_id=_get_int("VERIFY_CHANNEL_ID", None),
         welcome_channel_id=_get_int("WELCOME_CHANNEL_ID", None),
