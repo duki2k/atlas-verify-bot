@@ -23,6 +23,7 @@ class AtlasVerifyBot(commands.Bot):
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.verification")
         await self.load_extension("cogs.health")
+        await self.load_extension("cogs.cleanup")
 
         # Botão persistente
         from cogs.verification import VerificationView
