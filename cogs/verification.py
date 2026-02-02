@@ -1,5 +1,4 @@
 import datetime as _dt
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -27,52 +26,77 @@ def _mention_channel(channel_id: int | None, fallback: str) -> str:
     return f"<#{channel_id}>" if channel_id else fallback
 
 
-def _role_mention(role_id: int) -> str:
-    return f"<@&{role_id}>"
-
-
-async def _log(guild: discord.Guild, text: str) -> None:
+async def _log(guild: discord.Guild, title: str, text: str) -> None:
     if not settings.log_channel_id:
         return
     ch = guild.get_channel(settings.log_channel_id)
     if isinstance(ch, discord.TextChannel):
         try:
-            e = make_embeds(
-                title="🧾 Log",
-                text=text,
-                color=0x95A5A6,
-                footer=settings.embed_footer,
-            )[0]
+            e = make_embeds(title=title, text=text, color=0x95A5A6, footer=settings.embed_footer)[0]
             await ch.send(embed=e)
         except Exception:
             pass
 
 
-async def _clear_bot_pins(channel: discord.TextChannel, bot_id: int) -> None:
+async def _upsert_verify_message(ch: discord.TextChannel, embed: discord.Embed, view: discord.ui.View, bot_id: int) -> None:
+    # Tenta editar mensagem existente do bot; se não conseguir ler histórico, cria nova.
+    try:
+        async for msg in ch.history(limit=30):
+            if msg.author and msg.author.id == bot_id and msg.components:
+                found = False
+                for row in msg.components:
+                    for comp in getattr(row, "children", []):
+                        if getattr(comp, "custom_id", None) == VERIFY_BUTTON_CUSTOM_ID:
+                            found = True
+                            break
+                    if found:
+                        break
+                if found:
+                    await msg.edit(embed=embed, view=view)
+                    return
+    except discord.Forbidden:
+        # Sem Read Message History → cai no send novo
+        pass
+    except Exception:
+        pass
+
+    await ch.send(embed=embed, view=view)
+
+
+async def _upsert_single_pinned(channel: discord.TextChannel, embed: discord.Embed, bot_id: int) -> None:
+    # Atualiza 1 mensagem fixada do bot; se não existir, cria e fixa.
     try:
         pins = await channel.pins()
+        bot_pins = [m for m in pins if m.author and m.author.id == bot_id]
+        if bot_pins:
+            # edita a primeira
+            await bot_pins[0].edit(embed=embed)
+            # garante pin
+            try:
+                await bot_pins[0].pin(reason="Atlas onboarding")
+            except Exception:
+                pass
+            # remove duplicadas
+            for extra in bot_pins[1:]:
+                try:
+                    await extra.unpin()
+                except Exception:
+                    pass
+                try:
+                    await extra.delete()
+                except Exception:
+                    pass
+            return
+    except discord.Forbidden:
+        raise
     except Exception:
+        # se pins falhar, tenta só postar (sem pin)
+        await channel.send(embed=embed)
         return
 
-    for msg in pins:
-        if msg.author and msg.author.id == bot_id:
-            try:
-                await msg.unpin()
-            except Exception:
-                pass
-            try:
-                await msg.delete()
-            except Exception:
-                pass
-
-
-async def _post_and_pin(channel: discord.TextChannel, embeds: list[discord.Embed]) -> None:
-    for e in embeds:
-        m = await channel.send(
-            embed=e,
-            allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
-        )
-        await m.pin(reason="Atlas onboarding")
+    # não tinha pin do bot → cria e fixa
+    m = await channel.send(embed=embed)
+    await m.pin(reason="Atlas onboarding")
 
 
 async def _setup_pinned_messages(guild: discord.Guild, bot_id: int) -> tuple[bool, str]:
@@ -85,17 +109,11 @@ async def _setup_pinned_messages(guild: discord.Guild, bot_id: int) -> tuple[boo
     if not isinstance(welcome_ch, discord.TextChannel) or not isinstance(rules_ch, discord.TextChannel):
         return (False, "Pins ignorados: IDs não apontam para canais de texto.")
 
-    bot_member = guild.get_member(bot_id)
-    if bot_member:
-        pw = welcome_ch.permissions_for(bot_member)
-        pr = rules_ch.permissions_for(bot_member)
-        if not (pw.send_messages and pw.manage_messages):
-            return (False, "Sem permissão em #boas-vindas (precisa Enviar mensagens + Gerenciar mensagens).")
-        if not (pr.send_messages and pr.manage_messages):
-            return (False, "Sem permissão em #regras (precisa Enviar mensagens + Gerenciar mensagens).")
-
+    # placeholders
     rules_mention = _mention_channel(settings.rules_channel_id, "#regras")
-    member_role = _role_mention(settings.verified_role_id)
+
+    verified_role = guild.get_role(settings.verified_role_id)
+    member_role_text = f"@{verified_role.name}" if verified_role else "@Membro"
 
     news = _mention_channel(settings.news_channel_id, "#notícias")
     assets = _mention_channel(settings.assets_channel_id, "#ativos-mundiais")
@@ -108,7 +126,7 @@ async def _setup_pinned_messages(guild: discord.Guild, bot_id: int) -> tuple[boo
 
     try:
         welcome_text = settings.pinned_welcome_text.format(
-            member_role=member_role,
+            member_role=member_role_text,
             rules_channel=rules_mention,
             news_channel=news,
             assets_channel=assets,
@@ -117,7 +135,7 @@ async def _setup_pinned_messages(guild: discord.Guild, bot_id: int) -> tuple[boo
             support_channel=support,
         )
         rules_text = settings.pinned_rules_text.format(
-            member_role=member_role,
+            member_role=member_role_text,
             rules_channel=rules_mention,
             news_channel=news,
             assets_channel=assets,
@@ -126,41 +144,16 @@ async def _setup_pinned_messages(guild: discord.Guild, bot_id: int) -> tuple[boo
             support_channel=support,
         )
     except KeyError as e:
-        return (False, f"Placeholder inválido no texto: {e}. Use apenas os placeholders suportados.")
+        return (False, f"Placeholder inválido no texto: {e}")
 
-    await _clear_bot_pins(welcome_ch, bot_id)
-    await _clear_bot_pins(rules_ch, bot_id)
+    # cria/edita 1 pin por canal (rápido)
+    welcome_embed = make_embeds("🎉 Boas-vindas", welcome_text, 0x2ECC71, settings.embed_footer)[0]
+    rules_embed = make_embeds("📌 Regras", rules_text, 0xE67E22, settings.embed_footer)[0]
 
-    await _post_and_pin(
-        welcome_ch,
-        make_embeds("🎉 Boas-vindas", welcome_text, 0x2ECC71, settings.embed_footer),
-    )
-    await _post_and_pin(
-        rules_ch,
-        make_embeds("📌 Regras", rules_text, 0xE67E22, settings.embed_footer),
-    )
+    await _upsert_single_pinned(welcome_ch, welcome_embed, bot_id)
+    await _upsert_single_pinned(rules_ch, rules_embed, bot_id)
 
-    return (True, "Mensagens fixadas em #boas-vindas e #regras.")
-
-
-async def _upsert_verify_message(ch: discord.TextChannel, embed: discord.Embed, view: discord.ui.View, bot_id: int) -> None:
-    # Procura uma mensagem recente do bot que já tenha o botão e edita, senão cria uma nova
-    async for msg in ch.history(limit=50):
-        if msg.author and msg.author.id == bot_id and msg.components:
-            # tenta detectar o botão pelo custom_id
-            found = False
-            for row in msg.components:
-                for comp in getattr(row, "children", []):
-                    if getattr(comp, "custom_id", None) == VERIFY_BUTTON_CUSTOM_ID:
-                        found = True
-                        break
-                if found:
-                    break
-            if found:
-                await msg.edit(embed=embed, view=view)
-                return
-
-    await ch.send(embed=embed, view=view)
+    return (True, "Mensagens fixadas/atualizadas em #boas-vindas e #regras.")
 
 
 class VerificationView(discord.ui.View):
@@ -184,7 +177,7 @@ class VerificationView(discord.ui.View):
             await interaction.followup.send(embed=e, ephemeral=True)
             return
 
-        # Anti-raid 1: idade mínima
+        # anti-raid idade
         if settings.min_account_age_days > 0:
             age = _account_age_days(member)
             if age < settings.min_account_age_days:
@@ -197,14 +190,9 @@ class VerificationView(discord.ui.View):
                 await interaction.followup.send(embed=e, ephemeral=True)
                 return
 
-        # Anti-raid 2: exigir avatar (opcional)
+        # anti-raid avatar (opcional)
         if settings.require_avatar and member.avatar is None:
-            e = make_embeds(
-                "⛔ Verificação bloqueada",
-                "Para verificar, sua conta precisa ter **avatar** configurado.",
-                0xE74C3C,
-                settings.embed_footer,
-            )[0]
+            e = make_embeds("⛔ Verificação bloqueada", "Para verificar, sua conta precisa ter **avatar**.", 0xE74C3C, settings.embed_footer)[0]
             await interaction.followup.send(embed=e, ephemeral=True)
             return
 
@@ -238,7 +226,7 @@ class VerificationView(discord.ui.View):
         e.set_footer(text=settings.embed_footer)
         await interaction.followup.send(embed=e, ephemeral=True)
 
-        await _log(guild, f"🟩 Verificado: {member.mention} recebeu {verified_role.mention}. (id={member.id})")
+        await _log(guild, "🟩 Verificado", f"{member.mention} recebeu {verified_role.mention} (id={member.id}).")
 
     @discord.ui.button(label="Me enviar instruções 📩", style=discord.ButtonStyle.secondary, custom_id=HELP_BUTTON_CUSTOM_ID)
     async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -266,7 +254,7 @@ class VerificationView(discord.ui.View):
             ok = make_embeds("✅ Enviado!", "Te mandei as instruções no privado.", 0x2ECC71, settings.embed_footer)[0]
             await interaction.followup.send(embed=ok, ephemeral=True)
         except discord.Forbidden:
-            err = make_embeds("⛔ Não consegui te chamar", "Seu privado está bloqueado. Libere DM do servidor.", 0xE74C3C, settings.embed_footer)[0]
+            err = make_embeds("⛔ DM bloqueada", "Seu privado está bloqueado. Libere DM do servidor.", 0xE74C3C, settings.embed_footer)[0]
             await interaction.followup.send(embed=err, ephemeral=True)
 
 
@@ -274,7 +262,7 @@ class VerificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="setup_verificacao", description="Posta/atualiza verificação e fixa boas-vindas/regras (admin).")
+    @app_commands.command(name="setup_verificacao", description="Posta/atualiza verificação e atualiza pins (admin).")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setup_verificacao(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
@@ -283,40 +271,42 @@ class VerificationCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        if not settings.verify_channel_id:
-            e = make_embeds("⛔ Erro", "VERIFY_CHANNEL_ID não configurado.", 0xE74C3C, settings.embed_footer)[0]
-            await interaction.followup.send(embed=e, ephemeral=True)
-            return
+        results = []
+        guild = interaction.guild
 
-        ch = interaction.guild.get_channel(settings.verify_channel_id)
-        if not isinstance(ch, discord.TextChannel):
-            e = make_embeds("⛔ Erro", "VERIFY_CHANNEL_ID não aponta para um canal de texto.", 0xE74C3C, settings.embed_footer)[0]
-            await interaction.followup.send(embed=e, ephemeral=True)
-            return
-
-        verify_embed = make_embeds("🛡️ Verificação", settings.verify_message, 0x3498DB, settings.embed_footer)[0]
-        await _upsert_verify_message(ch, verify_embed, VerificationView(), self.bot.user.id)  # type: ignore
-
-        pinned_ok = False
-        pinned_msg = ""
         try:
-            pinned_ok, pinned_msg = await _setup_pinned_messages(interaction.guild, self.bot.user.id)  # type: ignore
-        except discord.Forbidden:
-            pinned_msg = "Sem permissão para fixar. Dê **Gerenciar mensagens** ao bot em #boas-vindas e #regras."
+            if not settings.verify_channel_id:
+                results.append("❌ VERIFY_CHANNEL_ID não configurado.")
+            else:
+                ch = guild.get_channel(settings.verify_channel_id)
+                if not isinstance(ch, discord.TextChannel):
+                    results.append("❌ VERIFY_CHANNEL_ID não aponta para canal de texto.")
+                else:
+                    verify_embed = make_embeds("🛡️ Verificação", settings.verify_message, 0x3498DB, settings.embed_footer)[0]
+                    await _upsert_verify_message(ch, verify_embed, VerificationView(), self.bot.user.id)  # type: ignore
+                    results.append(f"✅ Verificação atualizada em <#{settings.verify_channel_id}>.")
         except Exception:
-            logger.exception("Falha ao fixar mensagens.")
-            pinned_msg = "Falha ao fixar mensagens. Verifique permissões do bot."
+            logger.exception("Falha ao atualizar verificação.")
+            results.append("❌ Erro ao atualizar a verificação (veja Diagnostics).")
 
-        color = 0x2ECC71 if pinned_ok else 0xF1C40F
-        resp = discord.Embed(
-            title="✅ Setup concluído",
-            description=f"• Verificação atualizada em <#{settings.verify_channel_id}>\n• {pinned_msg or 'Pins processados.'}",
-            color=color,
-        )
-        resp.set_footer(text=settings.embed_footer)
-        await interaction.followup.send(embed=resp, ephemeral=True)
+        try:
+            ok, msg = await _setup_pinned_messages(guild, self.bot.user.id)  # type: ignore
+            results.append(("✅ " if ok else "⚠️ ") + msg)
+        except discord.Forbidden:
+            results.append("⚠️ Sem permissão pra atualizar pins. Dê **Read Message History + Manage Messages** em #boas-vindas/#regras.")
+        except Exception:
+            logger.exception("Falha ao atualizar pins.")
+            results.append("❌ Erro ao atualizar pins (veja Diagnostics).")
 
-        await _log(interaction.guild, f"⚙️ Setup executado por {interaction.user.mention} no canal <#{settings.verify_channel_id}>.")
+        e = make_embeds(
+            title="✅ Setup (resultado)",
+            text="\n".join(results),
+            color=0x2ECC71,
+            footer=settings.embed_footer,
+        )[0]
+        await interaction.followup.send(embed=e, ephemeral=True)
+
+        await _log(guild, "⚙️ Setup", f"Executado por {interaction.user.mention}.")
 
 
 async def setup(bot: commands.Bot) -> None:
