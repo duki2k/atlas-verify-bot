@@ -8,7 +8,7 @@ settings = load_settings()
 logger = setup_logging()
 
 intents = discord.Intents.default()
-intents.members = True
+intents.members = True  # necessário para on_member_join (logs/DM)
 
 
 class AtlasVerifyBot(commands.Bot):
@@ -16,23 +16,37 @@ class AtlasVerifyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self) -> None:
+        # Carrega extensões (slash commands + listeners)
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.verification")
 
+        # ✅ View persistente: botão continua funcionando após restart
+        try:
+            from cogs.verification import VerificationView
+            self.add_view(VerificationView())
+            logger.info("Persistent VerificationView registered.")
+        except Exception:
+            logger.exception("Failed to register persistent VerificationView.")
+
+        # ✅ Sync rápido no servidor (guild)
         try:
             if settings.guild_id:
                 guild = discord.Object(id=settings.guild_id)
-                # limpa cache de comandos do guild e sincroniza de novo
-                self.tree.clear_commands(guild=guild)
-                self.tree.copy_global_to(guild=guild)
-                await self.tree.sync(guild=guild)
-                logger.info("Slash commands synced (guild=%s).", settings.guild_id)
+                synced = await self.tree.sync(guild=guild)
+                logger.info(
+                    "Slash commands synced (guild=%s): %s",
+                    settings.guild_id,
+                    ", ".join([c.name for c in synced]),
+                )
             else:
-                await self.tree.sync()
-                logger.info("Slash commands synced (global).")
+                synced = await self.tree.sync()
+                logger.info(
+                    "Slash commands synced (global): %s",
+                    ", ".join([c.name for c in synced]),
+                )
         except Exception:
-            logger.exception("Falha ao sincronizar slash commands.")
+            logger.exception("Slash commands sync failed.")
 
     async def on_ready(self) -> None:
         logger.info("Online como %s (id=%s).", self.user, self.user.id)
