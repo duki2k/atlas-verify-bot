@@ -2,19 +2,30 @@ import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
-from utils.embeds import parse_emoji_pool
-
 load_dotenv()
 
 
+def _norm(s: str | None) -> str:
+    return (s or "").replace("\\n", "\n").strip()
+
+
+def _clean_int(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    # evita crash por erros comuns tipo "=123..." ou espaços
+    raw = raw.strip()
+    raw = raw.lstrip("= ")
+    return raw if raw != "" else None
+
+
 def _get_int(name: str, default: int | None = None) -> int | None:
-    v = os.getenv(name)
-    if v is None or v == "":
+    v = _clean_int(os.getenv(name))
+    if v is None:
         return default
     try:
         return int(v)
     except ValueError as e:
-        raise ValueError(f"Env var {name} precisa ser inteiro. Valor atual: {v!r}") from e
+        raise ValueError(f"Env var {name} precisa ser inteiro. Valor atual: {os.getenv(name)!r}") from e
 
 
 def _get_str(name: str, default: str | None = None) -> str | None:
@@ -22,11 +33,6 @@ def _get_str(name: str, default: str | None = None) -> str | None:
     if v is None or v == "":
         return default
     return v
-
-
-def _normalize_text(s: str) -> str:
-    # permite usar "\n" no painel de env vars e virar quebra de linha real
-    return (s or "").replace("\\n", "\n").strip()
 
 
 @dataclass(frozen=True)
@@ -42,48 +48,23 @@ class Settings:
     verified_role_id: int
     min_account_age_days: int
 
-    # textos
-    welcome_message: str
-    verify_message: str
-    post_verify_welcome_text: str
-    post_verify_rules_text: str
-
-    # embeds
-    emoji_pool: list[str]
     embed_footer: str
+
+    # textos
+    verify_message: str
+    welcome_dm_text: str
+    pinned_welcome_text: str
+    pinned_rules_text: str
 
 
 def load_settings() -> Settings:
     token = _get_str("DISCORD_TOKEN")
     if not token:
-        raise RuntimeError("DISCORD_TOKEN não foi definido nas variáveis de ambiente.")
+        raise RuntimeError("DISCORD_TOKEN não foi definido.")
 
     verified_role_id = _get_int("VERIFIED_ROLE_ID")
     if not verified_role_id:
         raise RuntimeError("VERIFIED_ROLE_ID é obrigatório.")
-
-    welcome_message = _normalize_text(_get_str(
-        "WELCOME_MESSAGE",
-        "Bem-vindo(a) {member}! Vá no canal #verificação e clique no botão ✅.",
-    ) or "")
-
-    verify_message = _normalize_text(_get_str(
-        "VERIFY_MESSAGE",
-        "Para acessar o servidor, clique no botão ✅ abaixo para verificar.",
-    ) or "")
-
-    post_verify_welcome_text = _normalize_text(_get_str(
-        "POST_VERIFY_WELCOME_TEXT",
-        "🎉 Bem-vindo(a), {member}! Confira {rules_channel} antes de postar.",
-    ) or "")
-
-    post_verify_rules_text = _normalize_text(_get_str(
-        "POST_VERIFY_RULES_TEXT",
-        "📌 {member}, respeite as regras e use os canais corretos. ✅",
-    ) or "")
-
-    emoji_pool = parse_emoji_pool(_get_str("EMOJI_POOL", None))
-    embed_footer = _get_str("EMBED_FOOTER", "Atlas Community") or "Atlas Community"
 
     return Settings(
         discord_token=token,
@@ -97,11 +78,30 @@ def load_settings() -> Settings:
         verified_role_id=verified_role_id,
         min_account_age_days=_get_int("MIN_ACCOUNT_AGE_DAYS", 0) or 0,
 
-        welcome_message=welcome_message,
-        verify_message=verify_message,
-        post_verify_welcome_text=post_verify_welcome_text,
-        post_verify_rules_text=post_verify_rules_text,
+        embed_footer=_get_str("EMBED_FOOTER", "Atlas Community") or "Atlas Community",
 
-        emoji_pool=emoji_pool,
-        embed_footer=embed_footer,
+        verify_message=_norm(_get_str(
+            "VERIFY_MESSAGE",
+            "Para acessar o servidor, clique no botão ✅ abaixo para verificar.",
+        )),
+
+        # DM opcional ao entrar (não posta no canal)
+        welcome_dm_text=_norm(_get_str(
+            "WELCOME_DM_TEXT",
+            "👋 Bem-vindo(a), {member}!\n\nPara liberar acesso, vá em {verify_channel} e clique no botão ✅.",
+        )),
+
+        # Mensagens que serão FIXADAS (pinned). Você vai colar seus textos aqui via env vars.
+        # Placeholders disponíveis:
+        # {member_role} -> menção do cargo verificado (ex.: @Membro)
+        # {rules_channel} -> menção do canal de regras
+        pinned_welcome_text=_norm(_get_str(
+            "PINNED_WELCOME_TEXT",
+            "🎉 Seja bem-vindo(a) à Atlas Community!\n\nCargo: {member_role}\nLeia {rules_channel} antes de postar.",
+        )),
+
+        pinned_rules_text=_norm(_get_str(
+            "PINNED_RULES_TEXT",
+            "📌 Regras do servidor (fixado).\n\nRespeito acima de tudo.",
+        )),
     )
