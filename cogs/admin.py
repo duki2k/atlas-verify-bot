@@ -15,12 +15,7 @@ class AdminCog(commands.Cog):
     @app_commands.command(name="ping", description="Teste simples do bot.")
     async def ping(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
-        e = make_embeds(
-            title="🏓 Pong",
-            text=f"{round(self.bot.latency * 1000)}ms",
-            color=0x3498DB,
-            footer=settings.embed_footer,
-        )[0]
+        e = make_embeds("🏓 Pong", f"{round(self.bot.latency * 1000)}ms", 0x3498DB, settings.embed_footer)[0]
         await interaction.followup.send(embed=e, ephemeral=True)
 
 
