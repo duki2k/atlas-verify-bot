@@ -119,4 +119,164 @@ async def _setup_pinned_messages(guild: discord.Guild, bot_user_id: int) -> tupl
 
     # limpa pins antigos do bot (pra não virar bagunça)
     await _clear_bot_pins(welcome_ch, bot_user_id)
-    aw
+    await _clear_bot_pins(rules_ch, bot_user_id)
+
+    # posta e fixa
+    await _post_and_pin(welcome_ch, _embeds("Boas-vindas", welcome_text, 0x2ECC71, fixed_emoji="🎉"))
+    await _post_and_pin(rules_ch, _embeds("Regras", rules_text, 0xE67E22, fixed_emoji="📌"))
+
+    return (True, "Mensagens fixadas em #boas-vindas e #regras.")
+
+
+async def _ping_member_after_verify(guild: discord.Guild, member: discord.Member) -> None:
+    welcome_ch = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
+    rules_ch = guild.get_channel(settings.rules_channel_id) if settings.rules_channel_id else None
+
+    if isinstance(welcome_ch, discord.TextChannel):
+        try:
+            e = _embeds(
+                "Boas-vindas",
+                f"{member.mention} 👋 Leia a **mensagem fixada** 📌 aqui no canal para começar.",
+                0x2ECC71,
+                fixed_emoji="🎉",
+            )[0]
+            await welcome_ch.send(embed=e)
+        except Exception:
+            logger.exception("Falha ao pingar no canal de boas-vindas.")
+
+    if isinstance(rules_ch, discord.TextChannel):
+        try:
+            e = _embeds(
+                "Regras",
+                f"{member.mention} ✅ Leia a **mensagem fixada** 📌 com as regras antes de postar.",
+                0xE67E22,
+                fixed_emoji="📌",
+            )[0]
+            await rules_ch.send(embed=e)
+        except Exception:
+            logger.exception("Falha ao pingar no canal de regras.")
+
+
+# ---------- view ----------
+class VerificationView(discord.ui.View):
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Verificar ✅", style=discord.ButtonStyle.success, custom_id=VERIFY_BUTTON_CUSTOM_ID)
+    async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Isso só funciona dentro de um servidor.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        member: discord.Member = interaction.user
+        guild = interaction.guild
+
+        verified = guild.get_role(settings.verified_role_id)
+        if not verified:
+            await interaction.followup.send(embed=_embeds("Erro", "VERIFIED_ROLE_ID inválido.", 0xE74C3C, fixed_emoji="⛔")[0], ephemeral=True)
+            return
+
+        # anti-raid opcional
+        min_days = settings.min_account_age_days
+        if min_days > 0:
+            age = _account_age_days(member)
+            if age < min_days:
+                await interaction.followup.send(
+                    embed=_embeds("Verificação bloqueada", f"Sua conta precisa ter **{min_days} dias**. (idade: **{age}d**)", 0xE74C3C, fixed_emoji="⛔")[0],
+                    ephemeral=True,
+                )
+                return
+
+        if verified in member.roles:
+            await interaction.followup.send(embed=_embeds("OK", "Você já está verificado ✅", 0x2ECC71, fixed_emoji="✅")[0], ephemeral=True)
+            return
+
+        try:
+            await member.add_roles(verified, reason="Verificação por botão")
+        except discord.Forbidden:
+            await interaction.followup.send(
+                embed=_embeds("Sem permissão", "Eu não consigo dar esse cargo. Meu cargo precisa estar **acima** do ✅ Verificado.", 0xE74C3C, fixed_emoji="⛔")[0],
+                ephemeral=True,
+            )
+            return
+
+        # marca o membro nos canais pra ele ver os fixados
+        await _ping_member_after_verify(guild, member)
+
+        # resposta FINAL (título exatamente como você pediu)
+        welcome_m = _ch_mention(settings.welcome_channel_id)
+        rules_m = _ch_mention(settings.rules_channel_id)
+        desc = "✅ **Acesso liberado!**\n\n"
+        if welcome_m:
+            desc += f"1) Vá para {welcome_m}\n"
+        if rules_m:
+            desc += f"2) Leia {rules_m}\n"
+
+        e = discord.Embed(title="✅ Acesso liberado!", description=desc.strip(), color=0x2ECC71)
+        e.set_footer(text=_footer())
+        await interaction.followup.send(embed=e, ephemeral=True)
+
+        # log opcional
+        if settings.log_channel_id:
+            ch = guild.get_channel(settings.log_channel_id)
+            if isinstance(ch, discord.TextChannel):
+                try:
+                    log = discord.Embed(title="📌 Membro verificado", description=f"{member.mention} recebeu {verified.mention}.", color=0x95A5A6)
+                    log.set_footer(text=_footer())
+                    await ch.send(embed=log)
+                except Exception:
+                    pass
+
+
+# ---------- cog ----------
+class VerificationCog(commands.Cog):
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+
+    @app_commands.command(name="setup_verificacao", description="Posta verificação + fixa boas-vindas/regras (admin).")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setup_verificacao(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Use isso dentro de um servidor.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # 1) postar verificação
+        if not settings.verify_channel_id:
+            await interaction.followup.send(embed=_embeds("Erro", "VERIFY_CHANNEL_ID não configurado.", 0xE74C3C, fixed_emoji="⛔")[0], ephemeral=True)
+            return
+
+        ch = interaction.guild.get_channel(settings.verify_channel_id)
+        if not isinstance(ch, discord.TextChannel):
+            await interaction.followup.send(embed=_embeds("Erro", "VERIFY_CHANNEL_ID não aponta para canal de texto.", 0xE74C3C, fixed_emoji="⛔")[0], ephemeral=True)
+            return
+
+        verify_embed = _embeds("Verificação", settings.verify_message, 0x3498DB, fixed_emoji="🛡️")[0]
+        await ch.send(embed=verify_embed, view=VerificationView())
+
+        # 2) fixar mensagens longas (se configurado)
+        pinned_ok = False
+        pinned_msg = "Pins ignorados (sem IDs)."
+        try:
+            pinned_ok, pinned_msg = await _setup_pinned_messages(interaction.guild, self.bot.user.id)  # type: ignore
+        except discord.Forbidden:
+            pinned_msg = "Sem permissão para fixar. Dê **Gerenciar mensagens** ao bot em #boas-vindas e #regras."
+        except Exception:
+            logger.exception("Falha ao fixar mensagens.")
+            pinned_msg = "Falha ao fixar mensagens. Verifique permissões do bot."
+
+        # 3) resposta
+        final = discord.Embed(
+            title="✅ Setup concluído",
+            description=f"• Verificação postada em <#{settings.verify_channel_id}>\n• {pinned_msg}",
+            color=0x2ECC71 if pinned_ok else 0xF1C40F,
+        )
+        final.set_footer(text=_footer())
+        await interaction.followup.send(embed=final, ephemeral=True)
+
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(VerificationCog(bot))
