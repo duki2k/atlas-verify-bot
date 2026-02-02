@@ -51,7 +51,6 @@ class Settings:
     rules_channel_id: int | None
     log_channel_id: int | None
 
-    # canais clicáveis (opcional)
     news_channel_id: int | None
     assets_channel_id: int | None
     education_channel_id: int | None
@@ -60,7 +59,7 @@ class Settings:
 
     verified_role_id: int
     min_account_age_days: int
-    require_avatar: bool  # ✅ novo
+    require_avatar: bool
 
     embed_footer: str
 
@@ -111,9 +110,6 @@ def load_settings() -> Settings:
             "👋 Bem-vindo(a), {member}!\n\nPara liberar acesso, vá em {verify_channel} e clique no botão ✅.",
         )),
 
-        # Placeholders:
-        # {member_role} {rules_channel}
-        # {news_channel} {assets_channel} {education_channel} {chat_channel} {support_channel}
         pinned_welcome_text=_norm(_get_str("PINNED_WELCOME_TEXT", "")),
         pinned_rules_text=_norm(_get_str("PINNED_RULES_TEXT", "")),
     )
