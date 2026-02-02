@@ -1,17 +1,17 @@
 import logging
+import sys
+
 
 def setup_logging() -> logging.Logger:
     logger = logging.getLogger("verifybot")
     logger.setLevel(logging.INFO)
 
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    if logger.handlers:
+        return logger  # evita duplicar handlers
+
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-
-    # Evita duplicar logs se o módulo for recarregado.
     logger.propagate = False
     return logger
