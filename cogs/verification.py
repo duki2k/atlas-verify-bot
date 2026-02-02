@@ -127,36 +127,6 @@ async def _setup_pinned_messages(guild: discord.Guild, bot_user_id: int) -> tupl
 
     return (True, "Mensagens fixadas em #boas-vindas e #regras.")
 
-
-async def _ping_member_after_verify(guild: discord.Guild, member: discord.Member) -> None:
-    welcome_ch = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
-    rules_ch = guild.get_channel(settings.rules_channel_id) if settings.rules_channel_id else None
-
-    if isinstance(welcome_ch, discord.TextChannel):
-        try:
-            e = _embeds(
-                "Boas-vindas",
-                f"{member.mention} 👋 Leia a **mensagem fixada** 📌 aqui no canal para começar.",
-                0x2ECC71,
-                fixed_emoji="🎉",
-            )[0]
-            await welcome_ch.send(embed=e)
-        except Exception:
-            logger.exception("Falha ao pingar no canal de boas-vindas.")
-
-    if isinstance(rules_ch, discord.TextChannel):
-        try:
-            e = _embeds(
-                "Regras",
-                f"{member.mention} ✅ Leia a **mensagem fixada** 📌 com as regras antes de postar.",
-                0xE67E22,
-                fixed_emoji="📌",
-            )[0]
-            await rules_ch.send(embed=e)
-        except Exception:
-            logger.exception("Falha ao pingar no canal de regras.")
-
-
 # ---------- view ----------
 class VerificationView(discord.ui.View):
     def __init__(self) -> None:
@@ -201,9 +171,6 @@ class VerificationView(discord.ui.View):
                 ephemeral=True,
             )
             return
-
-        # marca o membro nos canais pra ele ver os fixados
-        await _ping_member_after_verify(guild, member)
 
         # resposta FINAL (título exatamente como você pediu)
         welcome_m = _ch_mention(settings.welcome_channel_id)
