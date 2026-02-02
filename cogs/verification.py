@@ -12,12 +12,14 @@ logger = setup_logging()
 
 VERIFY_BUTTON_CUSTOM_ID = "verifybot:verify_button"
 
+
 def _account_age_days(user: discord.abc.User) -> int:
     created = user.created_at
     if created is None:
         return 9999
     now = _dt.datetime.now(tz=_dt.timezone.utc)
     return int((now - created).days)
+
 
 class VerificationView(discord.ui.View):
     def __init__(self) -> None:
@@ -36,12 +38,10 @@ class VerificationView(discord.ui.View):
         member: discord.Member = interaction.user
         guild = interaction.guild
 
-        pending = guild.get_role(settings.pending_role_id)
         verified = guild.get_role(settings.verified_role_id)
-
-        if not pending or not verified:
+        if not verified:
             await interaction.response.send_message(
-                "Configuração de cargos inválida (PENDING_ROLE_ID/VERIFIED_ROLE_ID).",
+                "Configuração inválida: VERIFIED_ROLE_ID não existe nesse servidor.",
                 ephemeral=True,
             )
             return
@@ -55,11 +55,13 @@ class VerificationView(discord.ui.View):
                     f"Sua conta precisa ter pelo menos {min_days} dias para verificar. (idade: {age}d)",
                     ephemeral=True,
                 )
-                # Log opcional
                 if settings.log_channel_id:
                     ch = guild.get_channel(settings.log_channel_id)
                     if isinstance(ch, discord.TextChannel):
-                        await ch.send(f"⚠️ Bloqueado por idade: {member.mention} (idade {age}d)")
+                        try:
+                            await ch.send(f"⚠️ Bloqueado por idade: {member.mention} ({age}d)")
+                        except Exception:
+                            pass
                 return
 
         # Se já verificado
@@ -67,15 +69,13 @@ class VerificationView(discord.ui.View):
             await interaction.response.send_message("Você já está verificado ✅", ephemeral=True)
             return
 
-        # Troca de cargos
+        # Dar cargo verificado
         try:
             await member.add_roles(verified, reason="Verificação por botão")
-            if pending in member.roles:
-                await member.remove_roles(pending, reason="Verificação por botão")
         except discord.Forbidden:
             await interaction.response.send_message(
-                "Eu não tenho permissão para mexer nesses cargos. "
-                "Confere se meu cargo está acima dos cargos de membro.",
+                "Eu não tenho permissão para dar esse cargo. "
+                "Confere se meu cargo está acima do cargo ✅ Verificado.",
                 ephemeral=True,
             )
             return
@@ -84,19 +84,26 @@ class VerificationView(discord.ui.View):
             await interaction.response.send_message("Erro inesperado. Tenta de novo.", ephemeral=True)
             return
 
-        await interaction.response.send_message("Verificado ✅ Bem-vindo!", ephemeral=True)
+        await interaction.response.send_message("Verificado ✅ Acesso liberado!", ephemeral=True)
 
         # Log opcional
         if settings.log_channel_id:
             ch = guild.get_channel(settings.log_channel_id)
             if isinstance(ch, discord.TextChannel):
-                await ch.send(f"✅ Verificado: {member.mention}")
+                try:
+                    await ch.send(f"✅ Verificado: {member.mention}")
+                except Exception:
+                    pass
+
 
 class VerificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="setup_verificacao", description="Posta a mensagem com botão de verificação (admin).")
+    @app_commands.command(
+        name="setup_verificacao",
+        description="Posta a mensagem com botão de verificação no canal configurado (admin).",
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setup_verificacao(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
@@ -104,7 +111,7 @@ class VerificationCog(commands.Cog):
             return
 
         if not settings.verify_channel_id:
-            await interaction.response.send_message("VERIFY_CHANNEL_ID não configurado no .env.", ephemeral=True)
+            await interaction.response.send_message("VERIFY_CHANNEL_ID não configurado.", ephemeral=True)
             return
 
         ch = interaction.guild.get_channel(settings.verify_channel_id)
@@ -116,8 +123,17 @@ class VerificationCog(commands.Cog):
             title="Verificação",
             description=settings.verify_message,
         )
-        await ch.send(embed=embed, view=VerificationView())
-        await interaction.response.send_message("Mensagem de verificação postada ✅", ephemeral=True)
+        try:
+            await ch.send(embed=embed, view=VerificationView())
+            await interaction.response.send_message("Mensagem de verificação postada ✅", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "Sem permissão para enviar mensagens nesse canal.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            logger.exception("Erro ao postar mensagem de verificação: %s", e)
+            await interaction.response.send_message("Erro ao postar a mensagem.", ephemeral=True)
 
     @setup_verificacao.error
     async def setup_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
@@ -129,6 +145,7 @@ class VerificationCog(commands.Cog):
                 await interaction.response.send_message("Erro ao executar o comando.", ephemeral=True)
             except Exception:
                 pass
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(VerificationCog(bot))
