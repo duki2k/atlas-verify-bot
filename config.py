@@ -12,9 +12,8 @@ def _norm(s: str | None) -> str:
 def _clean_int(raw: str | None) -> str | None:
     if raw is None:
         return None
-    # evita crash por erros comuns tipo "=123..." ou espaços
     raw = raw.strip()
-    raw = raw.lstrip("= ")
+    raw = raw.lstrip("= ")  # evita crash por "=123..."
     return raw if raw != "" else None
 
 
@@ -45,14 +44,21 @@ class Settings:
     rules_channel_id: int | None
     log_channel_id: int | None
 
+    # ✅ novos canais clicáveis
+    news_channel_id: int | None
+    assets_channel_id: int | None
+    education_channel_id: int | None
+    chat_channel_id: int | None
+    support_channel_id: int | None
+
     verified_role_id: int
     min_account_age_days: int
 
     embed_footer: str
 
-    # textos
     verify_message: str
     welcome_dm_text: str
+
     pinned_welcome_text: str
     pinned_rules_text: str
 
@@ -75,6 +81,13 @@ def load_settings() -> Settings:
         rules_channel_id=_get_int("RULES_CHANNEL_ID", None),
         log_channel_id=_get_int("LOG_CHANNEL_ID", None),
 
+        # ✅ novos canais clicáveis
+        news_channel_id=_get_int("NEWS_CHANNEL_ID", None),
+        assets_channel_id=_get_int("ASSETS_CHANNEL_ID", None),
+        education_channel_id=_get_int("EDUCATION_CHANNEL_ID", None),
+        chat_channel_id=_get_int("CHAT_CHANNEL_ID", None),
+        support_channel_id=_get_int("SUPPORT_CHANNEL_ID", None),
+
         verified_role_id=verified_role_id,
         min_account_age_days=_get_int("MIN_ACCOUNT_AGE_DAYS", 0) or 0,
 
@@ -85,19 +98,17 @@ def load_settings() -> Settings:
             "Para acessar o servidor, clique no botão ✅ abaixo para verificar.",
         )),
 
-        # DM opcional ao entrar (não posta no canal)
         welcome_dm_text=_norm(_get_str(
             "WELCOME_DM_TEXT",
             "👋 Bem-vindo(a), {member}!\n\nPara liberar acesso, vá em {verify_channel} e clique no botão ✅.",
         )),
 
-        # Mensagens que serão FIXADAS (pinned). Você vai colar seus textos aqui via env vars.
-        # Placeholders disponíveis:
-        # {member_role} -> menção do cargo verificado (ex.: @Membro)
-        # {rules_channel} -> menção do canal de regras
+        # Placeholders suportados:
+        # {member_role} {rules_channel}
+        # {news_channel} {assets_channel} {education_channel} {chat_channel} {support_channel}
         pinned_welcome_text=_norm(_get_str(
             "PINNED_WELCOME_TEXT",
-            "🎉 Seja bem-vindo(a) à Atlas Community!\n\nCargo: {member_role}\nLeia {rules_channel} antes de postar.",
+            "🎉 Seja bem-vindo(a) à Atlas Community!\n\n📌 Cargo: {member_role}\n📌 Leia {rules_channel} antes de postar.",
         )),
 
         pinned_rules_text=_norm(_get_str(
