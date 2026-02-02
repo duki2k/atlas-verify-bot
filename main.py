@@ -8,7 +8,7 @@ settings = load_settings()
 logger = setup_logging()
 
 intents = discord.Intents.default()
-intents.members = True  # necessário para on_member_join (logs/DM)
+intents.members = True  # on_member_join (logs/DM)
 
 
 class AtlasVerifyBot(commands.Bot):
@@ -16,12 +16,13 @@ class AtlasVerifyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self) -> None:
-        # Carrega extensões (slash commands + listeners)
+        # cogs
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.verification")
+        await self.load_extension("cogs.health")
 
-        # ✅ View persistente: botão continua funcionando após restart
+        # ✅ View persistente: botão de verificação não morre após restart
         try:
             from cogs.verification import VerificationView
             self.add_view(VerificationView())
@@ -29,7 +30,7 @@ class AtlasVerifyBot(commands.Bot):
         except Exception:
             logger.exception("Failed to register persistent VerificationView.")
 
-        # ✅ Sync rápido no servidor (guild)
+        # ✅ Sync no servidor (guild) pra aparecer rápido
         try:
             if settings.guild_id:
                 guild = discord.Object(id=settings.guild_id)
@@ -41,10 +42,7 @@ class AtlasVerifyBot(commands.Bot):
                 )
             else:
                 synced = await self.tree.sync()
-                logger.info(
-                    "Slash commands synced (global): %s",
-                    ", ".join([c.name for c in synced]),
-                )
+                logger.info("Slash commands synced (global): %s", ", ".join([c.name for c in synced]))
         except Exception:
             logger.exception("Slash commands sync failed.")
 
