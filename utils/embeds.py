@@ -1,74 +1,52 @@
-from __future__ import annotations
-
-import random
 import discord
 
-DEFAULT_EMOJI_POOL = ["👋", "✅", "🚀", "🔥", "✨", "📌", "📈", "🧠", "💬", "🛡️", "🗞️", "📚", "🧾"]
-
-def parse_emoji_pool(raw: str | None) -> list[str]:
-    if not raw:
-        return DEFAULT_EMOJI_POOL.copy()
-    items = [x.strip() for x in raw.split(",")]
-    items = [x for x in items if x]
-    return items or DEFAULT_EMOJI_POOL.copy()
-
-def pick_emoji(pool: list[str]) -> str:
-    return random.choice(pool) if pool else "✨"
 
 def split_text(text: str, limit: int = 3900) -> list[str]:
     text = (text or "").strip()
     if not text:
         return [""]
 
-    parts: list[str] = []
-    buff = ""
+    chunks: list[str] = []
+    buf = ""
 
     for para in text.split("\n\n"):
         para = para.strip()
         if not para:
             continue
-
-        candidate = para if not buff else f"{buff}\n\n{para}"
+        candidate = para if not buf else f"{buf}\n\n{para}"
         if len(candidate) <= limit:
-            buff = candidate
+            buf = candidate
         else:
-            if buff:
-                parts.append(buff)
-                buff = ""
+            if buf:
+                chunks.append(buf)
+                buf = ""
             while len(para) > limit:
-                parts.append(para[:limit])
+                chunks.append(para[:limit])
                 para = para[limit:]
-            buff = para
+            buf = para
 
-    if buff:
-        parts.append(buff)
+    if buf:
+        chunks.append(buf)
 
-    return parts or [""]
+    return chunks or [""]
 
-def make_embeds_from_text(
+
+def make_embeds(
     *,
     title: str,
     text: str,
-    emoji_pool: list[str],
-    footer: str | None = None,
-    color: int | None = None,
-    prefix_emoji: bool = True,
-    fixed_emoji: str | None = None,
+    color: int,
+    footer: str,
 ) -> list[discord.Embed]:
-    chunks = split_text(text)
+    parts = split_text(text)
     embeds: list[discord.Embed] = []
 
-    emoji = fixed_emoji or pick_emoji(emoji_pool)
-    for i, chunk in enumerate(chunks, start=1):
+    for i, part in enumerate(parts, start=1):
         t = title
-        if prefix_emoji:
-            t = f"{emoji} {t}"
-        if len(chunks) > 1:
-            t = f"{t} ({i}/{len(chunks)})"
-
-        e = discord.Embed(title=t, description=chunk, color=color)
-        if footer:
-            e.set_footer(text=footer)
+        if len(parts) > 1:
+            t = f"{t} ({i}/{len(parts)})"
+        e = discord.Embed(title=t, description=part, color=color)
+        e.set_footer(text=footer)
         embeds.append(e)
 
     return embeds
