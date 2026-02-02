@@ -35,6 +35,7 @@ async def _clear_bot_pins(channel: discord.TextChannel, bot_id: int) -> None:
         pins = await channel.pins()
     except Exception:
         return
+
     for msg in pins:
         if msg.author and msg.author.id == bot_id:
             try:
@@ -51,7 +52,7 @@ async def _post_and_pin(channel: discord.TextChannel, embeds: list[discord.Embed
     for e in embeds:
         m = await channel.send(
             embed=e,
-            # ✅ mostra menções sem notificar geral
+            # ✅ mostra a menção do cargo/canais, mas não pinga geral
             allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
         )
         try:
@@ -70,19 +71,40 @@ async def _setup_pinned_messages(guild: discord.Guild, bot_id: int) -> tuple[boo
     if not isinstance(welcome_ch, discord.TextChannel) or not isinstance(rules_ch, discord.TextChannel):
         return (False, "Pins ignorados: IDs não apontam para canais de texto.")
 
+    # menções principais
     rules_mention = _mention_channel(settings.rules_channel_id, "#regras")
-    member_role = _role_mention(settings.verified_role_id)  # ✅ “marcar o cargo Membro” (mesmo ID do VERIFIED_ROLE_ID)
+    member_role = _role_mention(settings.verified_role_id)  # ✅ aparece como @Membro (cargo verificado)
 
+    # ✅ menções clicáveis extras (com fallback se não tiver env)
+    news = _mention_channel(settings.news_channel_id, "#notícias")
+    assets = _mention_channel(settings.assets_channel_id, "#ativos-mundiais")
+    education = _mention_channel(settings.education_channel_id, "#educação-financeira")
+    chat = _mention_channel(settings.chat_channel_id, "#chat-geral")
+    support = _mention_channel(settings.support_channel_id, "#suporte")
+
+    # texto fixado (boas-vindas)
     welcome_text = settings.pinned_welcome_text.format(
         member_role=member_role,
         rules_channel=rules_mention,
+        news_channel=news,
+        assets_channel=assets,
+        education_channel=education,
+        chat_channel=chat,
+        support_channel=support,
     )
+
+    # texto fixado (regras) — pode usar os mesmos placeholders, mesmo que não estejam no texto
     rules_text = settings.pinned_rules_text.format(
         member_role=member_role,
         rules_channel=rules_mention,
+        news_channel=news,
+        assets_channel=assets,
+        education_channel=education,
+        chat_channel=chat,
+        support_channel=support,
     )
 
-    # limpa pins antigos do bot para não acumular
+    # limpa pins antigos do bot pra não acumular
     await _clear_bot_pins(welcome_ch, bot_id)
     await _clear_bot_pins(rules_ch, bot_id)
 
@@ -180,7 +202,7 @@ class VerificationView(discord.ui.View):
             await interaction.followup.send(embed=e, ephemeral=True)
             return
 
-        # ✅ Resposta final EXATA como você pediu
+        # ✅ Resposta final (como você queria)
         welcome_m = _mention_channel(settings.welcome_channel_id, "#boas-vindas")
         rules_m = _mention_channel(settings.rules_channel_id, "#regras")
 
@@ -242,7 +264,7 @@ class VerificationCog(commands.Cog):
             await interaction.followup.send(embed=e, ephemeral=True)
             return
 
-        # Posta mensagem de verificação (com botão)
+        # Posta verificação (embed + botão)
         verify_embed = make_embeds(
             title="🛡️ Verificação",
             text=settings.verify_message,
@@ -251,7 +273,7 @@ class VerificationCog(commands.Cog):
         )[0]
         await ch.send(embed=verify_embed, view=VerificationView())
 
-        # Fixar mensagens (boas-vindas + regras)
+        # Fixa mensagens (boas-vindas + regras)
         pinned_ok = False
         pinned_msg = ""
         try:
