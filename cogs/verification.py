@@ -1,5 +1,4 @@
 import datetime as _dt
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -22,60 +21,119 @@ def _account_age_days(user: discord.abc.User) -> int:
     return int((now - created).days)
 
 
-def _ch_mention(channel_id: int | None, fallback: str = "") -> str:
-    return f"<#{channel_id}>" if channel_id else fallback
+def _ch_mention(channel_id: int | None) -> str:
+    return f"<#{channel_id}>" if channel_id else ""
 
 
-async def _send_post_verify_messages(guild: discord.Guild, member: discord.Member) -> None:
-    rules_mention = _ch_mention(settings.rules_channel_id, "#regras")
+async def _clear_bot_pins(channel: discord.TextChannel, bot_user_id: int) -> None:
+    try:
+        pins = await channel.pins()
+    except Exception:
+        return
 
-    # Canais configurados
-    welcome_ch = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
-    rules_ch = guild.get_channel(settings.rules_channel_id) if settings.rules_channel_id else None
+    for msg in pins:
+        if msg.author and msg.author.id == bot_user_id:
+            try:
+                await msg.unpin()
+            except Exception:
+                pass
+            try:
+                await msg.delete()
+            except Exception:
+                pass
 
-    # Textos (format)
+
+async def _post_and_pin(channel: discord.TextChannel, embeds: list[discord.Embed]) -> None:
+    for e in embeds:
+        m = await channel.send(embed=e)
+        try:
+            await m.pin(reason="Onboarding")
+        except Exception:
+            pass
+
+
+async def _setup_pinned_messages(guild: discord.Guild, bot_user_id: int) -> None:
+    if not settings.welcome_channel_id or not settings.rules_channel_id:
+        return
+
+    welcome_ch = guild.get_channel(settings.welcome_channel_id)
+    rules_ch = guild.get_channel(settings.rules_channel_id)
+
+    if not isinstance(welcome_ch, discord.TextChannel) or not isinstance(rules_ch, discord.TextChannel):
+        return
+
+    rules_mention = _ch_mention(settings.rules_channel_id) or "#regras"
+
     welcome_text = settings.post_verify_welcome_text.format(
-        member=member.mention,
+        member="{member}",
         rules_channel=rules_mention,
     )
     rules_text = settings.post_verify_rules_text.format(
-        member=member.mention,
+        member="{member}",
         rules_channel=rules_mention,
     )
 
-    # Envia no canal de boas-vindas
+    # remove pins antigos do bot, posta novamente e fixa
+    await _clear_bot_pins(welcome_ch, bot_user_id)
+    await _clear_bot_pins(rules_ch, bot_user_id)
+
+    welcome_embeds = make_embeds_from_text(
+        title="Boas-vindas",
+        text=welcome_text.replace("{member}", "👤 (membro verificado)"),
+        emoji_pool=settings.emoji_pool,
+        footer=settings.embed_footer,
+        color=0x2ECC71,
+        prefix_emoji=False,  # título limpo
+        fixed_emoji="🎉",
+    )
+    rules_embeds = make_embeds_from_text(
+        title="Regras",
+        text=rules_text.replace("{member}", "👤 (membro verificado)"),
+        emoji_pool=settings.emoji_pool,
+        footer=settings.embed_footer,
+        color=0xE67E22,
+        prefix_emoji=False,
+        fixed_emoji="📌",
+    )
+
+    await _post_and_pin(welcome_ch, welcome_embeds)
+    await _post_and_pin(rules_ch, rules_embeds)
+
+
+async def _ping_member_after_verify(guild: discord.Guild, member: discord.Member) -> None:
+    welcome_ch = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
+    rules_ch = guild.get_channel(settings.rules_channel_id) if settings.rules_channel_id else None
+
+    # embed curto marcando o membro — pra ele notar a mensagem fixada
     if isinstance(welcome_ch, discord.TextChannel):
         try:
             embeds = make_embeds_from_text(
                 title="Boas-vindas",
-                text=welcome_text,
+                text=f"{member.mention} 👋 Leia a mensagem **fixada** 📌 aqui no canal para começar.",
                 emoji_pool=settings.emoji_pool,
                 footer=settings.embed_footer,
                 color=0x2ECC71,
+                prefix_emoji=False,
+                fixed_emoji="🎉",
             )
-            for e in embeds:
-                await welcome_ch.send(embed=e)
-        except discord.Forbidden:
-            logger.warning("Sem permissão para enviar embed no WELCOME_CHANNEL_ID.")
+            await welcome_ch.send(embed=embeds[0])
         except Exception:
-            logger.exception("Falha ao enviar embed de boas-vindas pós-verificação.")
+            logger.exception("Falha ao pingar no canal de boas-vindas.")
 
-    # Envia no canal de regras
     if isinstance(rules_ch, discord.TextChannel):
         try:
             embeds = make_embeds_from_text(
-                title="Regras do servidor",
-                text=rules_text,
+                title="Regras",
+                text=f"{member.mention} ✅ Leia a mensagem **fixada** 📌 com as regras antes de postar.",
                 emoji_pool=settings.emoji_pool,
                 footer=settings.embed_footer,
                 color=0xE67E22,
+                prefix_emoji=False,
+                fixed_emoji="📌",
             )
-            for e in embeds:
-                await rules_ch.send(embed=e)
-        except discord.Forbidden:
-            logger.warning("Sem permissão para enviar embed no RULES_CHANNEL_ID.")
+            await rules_ch.send(embed=embeds[0])
         except Exception:
-            logger.exception("Falha ao enviar embed de regras pós-verificação.")
+            logger.exception("Falha ao pingar no canal de regras.")
 
 
 class VerificationView(discord.ui.View):
@@ -92,7 +150,6 @@ class VerificationView(discord.ui.View):
             await interaction.response.send_message("Isso só funciona dentro de um servidor.", ephemeral=True)
             return
 
-        # responde rápido pra não estourar timeout
         await interaction.response.defer(ephemeral=True)
 
         member: discord.Member = interaction.user
@@ -100,102 +157,78 @@ class VerificationView(discord.ui.View):
 
         verified = guild.get_role(settings.verified_role_id)
         if not verified:
-            embeds = make_embeds_from_text(
-                title="Configuração inválida",
-                text="VERIFIED_ROLE_ID não existe nesse servidor.",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
-                color=0xE74C3C,
-            )
-            await interaction.followup.send(embed=embeds[0], ephemeral=True)
+            await interaction.followup.send("VERIFIED_ROLE_ID inválido.", ephemeral=True)
             return
 
-        # Anti-raid opcional: idade mínima da conta
+        # Anti-raid opcional
         min_days = settings.min_account_age_days
         if min_days > 0:
             age = _account_age_days(member)
             if age < min_days:
-                embeds = make_embeds_from_text(
-                    title="Verificação bloqueada",
-                    text=f"Sua conta precisa ter pelo menos {min_days} dias. (idade atual: {age}d)",
-                    emoji_pool=settings.emoji_pool,
-                    footer=settings.embed_footer,
+                e = discord.Embed(
+                    title="⛔ Verificação bloqueada",
+                    description=f"Sua conta precisa ter pelo menos **{min_days} dias**. (idade atual: **{age}d**)",
                     color=0xE74C3C,
                 )
-                await interaction.followup.send(embed=embeds[0], ephemeral=True)
+                e.set_footer(text=settings.embed_footer)
+                await interaction.followup.send(embed=e, ephemeral=True)
                 return
 
         if verified in member.roles:
-            embeds = make_embeds_from_text(
-                title="Já verificado",
-                text="Você já está verificado ✅",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
+            e = discord.Embed(
+                title="✅ Você já está verificado",
+                description="Tudo certo por aqui.",
                 color=0x2ECC71,
             )
-            await interaction.followup.send(embed=embeds[0], ephemeral=True)
+            e.set_footer(text=settings.embed_footer)
+            await interaction.followup.send(embed=e, ephemeral=True)
             return
 
         # Dar cargo
         try:
             await member.add_roles(verified, reason="Verificação por botão")
         except discord.Forbidden:
-            embeds = make_embeds_from_text(
-                title="Sem permissão",
-                text="Eu não consigo dar esse cargo. Confere se meu cargo está acima do ✅ Verificado.",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
+            e = discord.Embed(
+                title="⛔ Sem permissão",
+                description="Eu não consigo dar esse cargo. Confere se meu cargo está **acima** do ✅ Verificado.",
                 color=0xE74C3C,
             )
-            await interaction.followup.send(embed=embeds[0], ephemeral=True)
-            return
-        except Exception as e:
-            logger.exception("Erro ao verificar: %s", e)
-            embeds = make_embeds_from_text(
-                title="Erro",
-                text="Erro inesperado ao verificar. Tenta novamente.",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
-                color=0xE74C3C,
-            )
-            await interaction.followup.send(embed=embeds[0], ephemeral=True)
+            e.set_footer(text=settings.embed_footer)
+            await interaction.followup.send(embed=e, ephemeral=True)
             return
 
-        # Envia boas-vindas + regras (embeds)
-        await _send_post_verify_messages(guild, member)
+        # Ping nos canais (mensagens fixadas)
+        await _ping_member_after_verify(guild, member)
 
-        # Resposta ephemeral com links
-        welcome_mention = _ch_mention(settings.welcome_channel_id, "")
-        rules_mention = _ch_mention(settings.rules_channel_id, "")
+        # Resposta final: título EXATO como você quer
+        welcome_m = _ch_mention(settings.welcome_channel_id)
+        rules_m = _ch_mention(settings.rules_channel_id)
+        desc = "✅ **Acesso liberado!**\n\n"
+        if welcome_m:
+            desc += f"1) Vá para {welcome_m}\n"
+        if rules_m:
+            desc += f"2) Leia {rules_m}\n"
 
-        roteiro = "✅ Acesso liberado!\n"
-        if welcome_mention:
-            roteiro += f"1) Vá para {welcome_mention}\n"
-        if rules_mention:
-            roteiro += f"2) Leia {rules_mention}\n"
-
-        embeds = make_embeds_from_text(
-            title="Bem-vindo(a)! 🎉",
-            text=roteiro.strip(),
-            emoji_pool=settings.emoji_pool,
-            footer=settings.embed_footer,
-            color=0x3498DB,
+        e = discord.Embed(
+            title="✅ Acesso liberado!",
+            description=desc.strip(),
+            color=0x2ECC71,
         )
-        await interaction.followup.send(embed=embeds[0], ephemeral=True)
+        e.set_footer(text=settings.embed_footer)
+        await interaction.followup.send(embed=e, ephemeral=True)
 
         # Log opcional
         if settings.log_channel_id:
             ch = guild.get_channel(settings.log_channel_id)
             if isinstance(ch, discord.TextChannel):
                 try:
-                    log_embeds = make_embeds_from_text(
-                        title="Membro verificado",
-                        text=f"{member.mention} foi verificado e recebeu {verified.mention}.",
-                        emoji_pool=settings.emoji_pool,
-                        footer=settings.embed_footer,
+                    log = discord.Embed(
+                        title="📌 Membro verificado",
+                        description=f"{member.mention} recebeu {verified.mention}.",
                         color=0x95A5A6,
                     )
-                    await ch.send(embed=log_embeds[0])
+                    log.set_footer(text=settings.embed_footer)
+                    await ch.send(embed=log)
                 except Exception:
                     pass
 
@@ -229,64 +262,50 @@ class VerificationCog(commands.Cog):
             emoji_pool=settings.emoji_pool,
             footer=settings.embed_footer,
             color=0x3498DB,
+            prefix_emoji=False,
+            fixed_emoji="🛡️",
         )
+
+        await ch.send(embed=embeds[0], view=VerificationView())
+
+        ok = discord.Embed(title="✅ OK", description="Mensagem de verificação postada.", color=0x2ECC71)
+        ok.set_footer(text=settings.embed_footer)
+        await interaction.response.send_message(embed=ok, ephemeral=True)
+
+    @app_commands.command(
+        name="setup_mensagens",
+        description="Cria e fixa as mensagens de boas-vindas e regras (admin).",
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setup_mensagens(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Use isso dentro de um servidor.", ephemeral=True)
+            return
+
+        if not settings.welcome_channel_id or not settings.rules_channel_id:
+            await interaction.response.send_message("Configure WELCOME_CHANNEL_ID e RULES_CHANNEL_ID.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
         try:
-            await ch.send(embed=embeds[0], view=VerificationView())
-            ok = make_embeds_from_text(
-                title="OK",
-                text="Mensagem de verificação postada ✅",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
+            await _setup_pinned_messages(interaction.guild, self.bot.user.id)  # type: ignore
+            e = discord.Embed(
+                title="📌 Mensagens fixadas",
+                description="Boas-vindas e regras foram postadas e fixadas com sucesso.",
                 color=0x2ECC71,
             )
-            await interaction.response.send_message(embed=ok[0], ephemeral=True)
-        except discord.Forbidden:
-            err = make_embeds_from_text(
-                title="Sem permissão",
-                text="Eu não consigo enviar mensagem nesse canal.",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
+            e.set_footer(text=settings.embed_footer)
+            await interaction.followup.send(embed=e, ephemeral=True)
+        except Exception:
+            logger.exception("Falha no /setup_mensagens")
+            e = discord.Embed(
+                title="⛔ Erro",
+                description="Não consegui fixar as mensagens. Verifique permissões do bot nos canais.",
                 color=0xE74C3C,
             )
-            await interaction.response.send_message(embed=err[0], ephemeral=True)
-        except Exception as e:
-            logger.exception("Erro ao postar verificação: %s", e)
-            err = make_embeds_from_text(
-                title="Erro",
-                text="Erro ao postar a mensagem de verificação.",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
-                color=0xE74C3C,
-            )
-            await interaction.response.send_message(embed=err[0], ephemeral=True)
-
-    @setup_verificacao.error
-    async def setup_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        if isinstance(error, app_commands.MissingPermissions):
-            embeds = make_embeds_from_text(
-                title="Sem permissão",
-                text="Você precisa de permissão de Gerenciar Servidor.",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
-                color=0xE74C3C,
-            )
-            try:
-                await interaction.response.send_message(embed=embeds[0], ephemeral=True)
-            except Exception:
-                pass
-        else:
-            logger.exception("Erro no /setup_verificacao: %s", error)
-            embeds = make_embeds_from_text(
-                title="Erro",
-                text="Erro ao executar o comando.",
-                emoji_pool=settings.emoji_pool,
-                footer=settings.embed_footer,
-                color=0xE74C3C,
-            )
-            try:
-                await interaction.response.send_message(embed=embeds[0], ephemeral=True)
-            except Exception:
-                pass
+            e.set_footer(text=settings.embed_footer)
+            await interaction.followup.send(embed=e, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
