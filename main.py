@@ -17,32 +17,36 @@ class AtlasVerifyBot(commands.Bot):
         self._did_sync = False
 
     async def setup_hook(self) -> None:
-        # Carrega cogs
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.verification")
         await self.load_extension("cogs.health")
 
-        # View persistente (botão não morre após restart)
+        # View persistente
         from cogs.verification import VerificationView
         self.add_view(VerificationView())
 
     async def on_ready(self) -> None:
         logger.info("Online como %s (id=%s).", self.user, self.user.id)
 
-        # ✅ Sync por guild (instantâneo) — garante /health aparecer
         if self._did_sync:
             return
         self._did_sync = True
 
         try:
             for g in self.guilds:
-                synced = await self.tree.sync(guild=discord.Object(id=g.id))
+                guild_obj = discord.Object(id=g.id)
+
+                # ✅ aqui está o pulo do gato:
+                # copia comandos globais para a guild e sincroniza
+                self.tree.copy_global_to(guild=guild_obj)
+                synced = await self.tree.sync(guild=guild_obj)
+
                 logger.info(
                     "Synced guild=%s (%s): %s",
                     g.id,
                     g.name,
-                    ", ".join([c.name for c in synced]),
+                    ", ".join([c.name for c in synced]) if synced else "(nenhum)",
                 )
         except Exception:
             logger.exception("Guild sync failed.")
