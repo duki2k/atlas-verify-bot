@@ -3,7 +3,7 @@ import sys
 
 
 def setup_logging() -> logging.Logger:
-    logger = logging.getLogger("atlas_welcome")
+    logger = logging.getLogger("duki_odyssey")
     logger.setLevel(logging.INFO)
 
     if logger.handlers:
