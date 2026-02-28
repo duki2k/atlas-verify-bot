@@ -3,15 +3,14 @@ import sys
 
 
 def setup_logging() -> logging.Logger:
-    logger = logging.getLogger("verifybot")
+    logger = logging.getLogger("atlas_welcome")
     logger.setLevel(logging.INFO)
 
     if logger.handlers:
-        return logger  # evita duplicar handlers
+        return logger
 
     handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
-    handler.setFormatter(formatter)
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
     logger.addHandler(handler)
     logger.propagate = False
     return logger
