@@ -40,6 +40,13 @@ def _get_bool(name: str, default: bool = False) -> bool:
     return v in ("1", "true", "yes", "y", "on")
 
 
+def _parse_list(raw: str | None, sep: str = "|||") -> list[str]:
+    if not raw:
+        return []
+    items = [x.strip() for x in raw.split(sep)]
+    return [x for x in items if x]
+
+
 def _parse_emoji_pool(raw: str | None) -> list[str]:
     if not raw:
         return ["🌌", "✨", "🚀", "🎮", "😂", "🎧", "🍕", "🧩", "🔥", "💫"]
@@ -51,8 +58,6 @@ def _parse_emoji_pool(raw: str | None) -> list[str]:
 @dataclass(frozen=True)
 class Settings:
     discord_token: str
-
-    # ✅ comandos apenas aqui
     admin_channel_id: int
 
     welcome_channel_id: int | None
@@ -63,7 +68,13 @@ class Settings:
     embed_footer: str
     emoji_pool: list[str]
 
+    # base fixa (continua existindo)
     welcome_text: str
+
+    # 19+ variações para sorteio (servidor)
+    welcome_text_variants: list[str]
+
+    # fallback fixo para DM (pra não repetir)
     dm_welcome_text: str
 
 
@@ -88,7 +99,15 @@ def load_settings() -> Settings:
         embed_footer=_get_str("EMBED_FOOTER", "Duki Odyssey ®") or "Duki Odyssey ®",
         emoji_pool=_parse_emoji_pool(_get_str("EMOJI_POOL", None)),
 
-        # {member} = menção do usuário
+        # seu texto “padrão” (continua)
         welcome_text=_norm(_get_str("WELCOME_TEXT", "Seja bem-vindo(a), {member}! 👋✨")),
-        dm_welcome_text=_norm(_get_str("DM_WELCOME_TEXT", "👋 Oi {member}! Bem-vindo(a) ao Duki Odyssey ® 🌌✨")),
+
+        # aqui entram os 19 (ou quantos você quiser)
+        welcome_text_variants=_parse_list(_get_str("WELCOME_TEXT_VARIANTS", None)),
+
+        # DM fallback (curta e diferente do servidor)
+        dm_welcome_text=_norm(_get_str(
+            "DM_WELCOME_TEXT",
+            "👋 Oi {member}! Bem-vindo(a) ao **Duki Odyssey ®** 🌌✨\n\nSe quiser, manda um oi no chat e entra na resenha 😄",
+        )),
     )
