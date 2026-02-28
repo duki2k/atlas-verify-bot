@@ -1,4 +1,5 @@
 import random
+import re
 import discord
 from discord.ext import commands
 
@@ -11,9 +12,32 @@ logger = setup_logging()
 
 
 def pick_welcome_template() -> str:
-    # Sorteia entre o texto base + variações
     pool = [settings.welcome_text] + (settings.welcome_text_variants or [])
     return random.choice(pool)
+
+
+def prettify(text: str) -> str:
+    """
+    Deixa o texto mais legível no embed:
+    - cria separação entre blocos (🎉 📌 🚀 etc)
+    - quebra bullets em linhas
+    - reduz espaços duplicados
+    """
+    t = text.strip()
+
+    # garante espaçamento antes de blocos/sessões (quando não estiver no começo)
+    for marker in ["🎉", "📌", "🚀", "🎮", "😂", "🎧", "🌌", "🌟", "🛸", "🌠", "🕹️", "🎲", "⚠️"]:
+        t = re.sub(rf"(?<!^)\s*{re.escape(marker)}\s*", f"\n\n{marker} ", t)
+
+    # bullets em linha separada
+    t = t.replace(" • ", "\n• ")
+    t = t.replace("• ", "• ")  # mantém
+
+    # limpeza: remove excesso de espaços
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+
+    return t.strip()
 
 
 class WelcomeCog(commands.Cog):
@@ -24,13 +48,14 @@ class WelcomeCog(commands.Cog):
     async def on_member_join(self, member: discord.Member) -> None:
         emoji = pick_emoji(settings.emoji_pool)
 
-        # 1) Servidor: mensagem aleatória
+        # 1) Servidor: mensagem aleatória + formatação bonita
         if settings.welcome_channel_id:
             ch = member.guild.get_channel(settings.welcome_channel_id)
             if isinstance(ch, discord.TextChannel):
                 try:
                     tpl = pick_welcome_template()
-                    text = tpl.format(member=member.mention, server=member.guild.name)
+                    raw = tpl.format(member=member.mention, server=member.guild.name)
+                    text = prettify(raw)
 
                     embed = make_embed(
                         title=f"{emoji} Boas-vindas — {member.guild.name}",
@@ -45,10 +70,12 @@ class WelcomeCog(commands.Cog):
                 except Exception:
                     logger.exception("Falha ao enviar boas-vindas no canal.")
 
-        # 2) DM: fallback fixo (não repete)
+        # 2) DM: fallback fixo (também formatado)
         if settings.dm_welcome_enabled:
             try:
-                dm_text = settings.dm_welcome_text.format(member=member.mention, server=member.guild.name)
+                dm_raw = settings.dm_welcome_text.format(member=member.mention, server=member.guild.name)
+                dm_text = prettify(dm_raw)
+
                 dm_embed = make_embed(
                     title=f"{emoji} Bem-vindo(a)!",
                     description=dm_text,
