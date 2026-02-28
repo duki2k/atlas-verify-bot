@@ -112,30 +112,42 @@ class AdminCog(commands.Cog):
         days_active = _days_since(guild.created_at)
 
         # contagem por cargos (ignora @everyone)
-        role_counts = []
-        for role in sorted(guild.roles, key=lambda r: r.position, reverse=True):
+        role_counts: list[tuple[str, int, int]] = []
+        for role in guild.roles:
             if role.is_default():
                 continue
-            role_counts.append((role.name, len(role.members)))
+            role_counts.append((role.name, len(role.members), role.position))
 
-        # monta texto (limite do embed)
+        # ✅ ordena por quantidade (desc). desempate: posição (desc)
+        role_counts.sort(key=lambda x: (x[1], x[2]), reverse=True)
+
+        # monta texto respeitando limites de embed
         lines = []
-        for name, cnt in role_counts[:25]:  # top 25 por posição
-            lines.append(f"• **{name}**: `{cnt}`")
+        shown = 0
+        for name, cnt, _pos in role_counts:
+            line = f"• **{name}**: `{cnt}`"
+            # corta em 25 linhas pra ficar limpo
+            if shown >= 25:
+                break
+            lines.append(line)
+            shown += 1
+
         roles_block = "\n".join(lines) if lines else "_sem cargos_"
+        rest = max(0, len(role_counts) - shown)
+        if rest > 0:
+            roles_block += f"\n… + `{rest}` cargos"
 
         embed = make_embed(
             title="STATUS",
             description=(
                 f"👥 Membros: **{total}**\n"
                 f"🗓️ Servidor ativo há: **{days_active} dias**\n\n"
-                f"🧩 Cargos (top por hierarquia):\n{roles_block}"
+                f"🏷️ Cargos (top por membros):\n{roles_block}"
             ),
             footer=f"{settings.bot_name}",
             thumbnail_url=guild.icon.url if guild.icon else None,
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
     @app_commands.command(name="user", description="Info de um usuário (admin).")
     @app_commands.checks.has_permissions(administrator=True)
     async def user(self, interaction: discord.Interaction, membro: discord.Member) -> None:
