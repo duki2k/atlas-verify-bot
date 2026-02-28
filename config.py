@@ -40,13 +40,6 @@ def _get_bool(name: str, default: bool = False) -> bool:
     return v in ("1", "true", "yes", "y", "on")
 
 
-def _parse_list(raw: str | None, sep: str = "|||") -> list[str]:
-    if not raw:
-        return []
-    items = [x.strip() for x in raw.split(sep)]
-    return [x for x in items if x]
-
-
 def _parse_emoji_pool(raw: str | None) -> list[str]:
     if not raw:
         return ["🌌", "✨", "🚀", "🎮", "😂", "🎧", "🍕", "🧩", "🔥", "💫"]
@@ -55,40 +48,12 @@ def _parse_emoji_pool(raw: str | None) -> list[str]:
     return items or ["🌌", "✨", "🚀", "🎮", "😂", "🎧", "🍕", "🧩", "🔥", "💫"]
 
 
-def _parse_tz_offset(raw: str | None) -> int:
-    """
-    Retorna offset em minutos.
-    Aceita: -03:00, +02:30, 0, -180 (minutos).
-    """
-    if raw is None or raw.strip() == "":
-        return 0
-    s = raw.strip()
-
-    # minutos direto
-    if s.lstrip("+-").isdigit():
-        return int(s)
-
-    sign = 1
-    if s.startswith("-"):
-        sign = -1
-        s = s[1:]
-    elif s.startswith("+"):
-        s = s[1:]
-
-    if ":" in s:
-        hh, mm = s.split(":", 1)
-        return sign * (int(hh) * 60 + int(mm))
-
-    # fallback: horas
-    if s.isdigit():
-        return sign * int(s) * 60
-
-    return 0
-
-
 @dataclass(frozen=True)
 class Settings:
     discord_token: str
+
+    # ✅ comandos apenas aqui
+    admin_channel_id: int
 
     welcome_channel_id: int | None
     log_channel_id: int | None
@@ -98,27 +63,8 @@ class Settings:
     embed_footer: str
     emoji_pool: list[str]
 
-    tz_offset_minutes: int
-
-    # Texto base (fallback)
     welcome_text: str
     dm_welcome_text: str
-
-    # Variações (aleatórias)
-    welcome_text_variants: list[str]
-    dm_text_variants: list[str]
-
-    # Variações por horário (se definidas, têm prioridade)
-    welcome_morning: str
-    welcome_afternoon: str
-    welcome_night: str
-
-    dm_morning: str
-    dm_afternoon: str
-    dm_night: str
-
-    # Linhas divertidas aleatórias (opcional)
-    fun_lines: list[str]
 
 
 def load_settings() -> Settings:
@@ -126,10 +72,13 @@ def load_settings() -> Settings:
     if not token:
         raise RuntimeError("DISCORD_TOKEN não foi definido.")
 
-    tz_offset = _parse_tz_offset(_get_str("TZ_OFFSET", "-03:00"))  # default Brasil
+    admin_channel_id = _get_int("ADMIN_CHANNEL_ID")
+    if not admin_channel_id:
+        raise RuntimeError("ADMIN_CHANNEL_ID é obrigatório (ID do canal #admin-bot).")
 
     return Settings(
         discord_token=token,
+        admin_channel_id=admin_channel_id,
 
         welcome_channel_id=_get_int("WELCOME_CHANNEL_ID", None),
         log_channel_id=_get_int("LOG_CHANNEL_ID", None),
@@ -139,24 +88,7 @@ def load_settings() -> Settings:
         embed_footer=_get_str("EMBED_FOOTER", "Duki Odyssey ®") or "Duki Odyssey ®",
         emoji_pool=_parse_emoji_pool(_get_str("EMOJI_POOL", None)),
 
-        tz_offset_minutes=tz_offset,
-
-        # fallback
+        # {member} = menção do usuário
         welcome_text=_norm(_get_str("WELCOME_TEXT", "Seja bem-vindo(a), {member}! 👋✨")),
         dm_welcome_text=_norm(_get_str("DM_WELCOME_TEXT", "👋 Oi {member}! Bem-vindo(a) ao Duki Odyssey ® 🌌✨")),
-
-        # variantes (se quiser usar só isso, sem horário)
-        welcome_text_variants=_parse_list(_get_str("WELCOME_TEXT_VARIANTS", None)),
-        dm_text_variants=_parse_list(_get_str("DM_WELCOME_TEXT_VARIANTS", None)),
-
-        # horário (se definidos, ganham prioridade)
-        welcome_morning=_norm(_get_str("WELCOME_TEXT_MORNING", "")),
-        welcome_afternoon=_norm(_get_str("WELCOME_TEXT_AFTERNOON", "")),
-        welcome_night=_norm(_get_str("WELCOME_TEXT_NIGHT", "")),
-
-        dm_morning=_norm(_get_str("DM_WELCOME_TEXT_MORNING", "")),
-        dm_afternoon=_norm(_get_str("DM_WELCOME_TEXT_AFTERNOON", "")),
-        dm_night=_norm(_get_str("DM_WELCOME_TEXT_NIGHT", "")),
-
-        fun_lines=_parse_list(_get_str("FUN_LINES", None)),
     )
