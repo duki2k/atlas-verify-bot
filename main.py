@@ -9,11 +9,11 @@ settings = load_settings()
 logger = setup_logging()
 
 intents = discord.Intents.default()
-intents.members = True  # join/leave + status
+intents.members = True
 
-# Se você ativar stats tracking, é recomendável ligar isto no Developer Portal também.
-# intents.message_content = settings.enable_stats_tracking
-# intents.reactions = settings.enable_stats_tracking  # discord.py usa intents.default() já cobre reactions em muitos casos
+
+# ✅ nomes que você quer GARANTIR que sumam
+BANNED_COMMAND_NAMES = {"sync", "setup_verificacao", "setup_verificacaoo", "setup_verificacao"}
 
 
 class RoboDukiBot(commands.Bot):
@@ -25,6 +25,7 @@ class RoboDukiBot(commands.Bot):
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.cleanup")
 
+        # trava global: comandos só no canal admin
         async def only_admin_channel(interaction: discord.Interaction) -> bool:
             if interaction.guild is None:
                 raise app_commands.CheckFailure("Comandos só no servidor.")
@@ -36,6 +37,43 @@ class RoboDukiBot(commands.Bot):
 
     async def on_ready(self) -> None:
         logger.info("Online como %s (id=%s).", self.user, self.user.id)
+
+        try:
+            # ✅ 1) Remover comandos globais antigos (se existirem)
+            global_cmds = await self.tree.fetch_commands()
+            deleted = 0
+            for c in global_cmds:
+                if c.name in BANNED_COMMAND_NAMES:
+                    await self.tree.delete_command(c)
+                    deleted += 1
+            if deleted:
+                logger.info("Deleted %s global stale commands.", deleted)
+
+            # ✅ 2) Para cada guild, remover comandos antigos + sync (atualiza quase instantâneo)
+            for g in self.guilds:
+                guild_obj = discord.Object(id=g.id)
+
+                # apaga comandos indesejados na guild
+                guild_cmds = await self.tree.fetch_commands(guild=guild_obj)
+                deleted_g = 0
+                for c in guild_cmds:
+                    if c.name in BANNED_COMMAND_NAMES:
+                        await self.tree.delete_command(c, guild=guild_obj)
+                        deleted_g += 1
+                if deleted_g:
+                    logger.info("Deleted %s guild stale commands in %s.", deleted_g, g.id)
+
+                # sincroniza comandos atuais na guild
+                self.tree.copy_global_to(guild=guild_obj)
+                synced = await self.tree.sync(guild=guild_obj)
+                logger.info("Synced guild=%s (%s): %s", g.id, g.name, ", ".join([x.name for x in synced]) or "(none)")
+
+            # ✅ 3) Sync global (pode levar um pouco pra refletir no cliente, mas o delete já foi feito)
+            await self.tree.sync()
+            logger.info("Synced global commands.")
+
+        except Exception:
+            logger.exception("Command cleanup/sync failed.")
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):
