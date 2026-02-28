@@ -58,24 +58,21 @@ def _parse_emoji_pool(raw: str | None) -> list[str]:
 @dataclass(frozen=True)
 class Settings:
     discord_token: str
-    admin_channel_id: int
 
+    admin_channel_id: int
     welcome_channel_id: int | None
     log_channel_id: int | None
 
-    dm_welcome_enabled: bool
-
+    bot_name: str
     embed_footer: str
     emoji_pool: list[str]
 
-    # base fixa (continua existindo)
+    dm_welcome_enabled: bool
     welcome_text: str
-
-    # 19+ variações para sorteio (servidor)
     welcome_text_variants: list[str]
-
-    # fallback fixo para DM (pra não repetir)
     dm_welcome_text: str
+
+    enable_stats_tracking: bool
 
 
 def load_settings() -> Settings:
@@ -90,24 +87,22 @@ def load_settings() -> Settings:
     return Settings(
         discord_token=token,
         admin_channel_id=admin_channel_id,
-
         welcome_channel_id=_get_int("WELCOME_CHANNEL_ID", None),
         log_channel_id=_get_int("LOG_CHANNEL_ID", None),
 
-        dm_welcome_enabled=_get_bool("DM_WELCOME_ENABLED", True),
-
+        bot_name=_get_str("BOT_NAME", "Robô Duki") or "Robô Duki",
         embed_footer=_get_str("EMBED_FOOTER", "Duki Odyssey ®") or "Duki Odyssey ®",
         emoji_pool=_parse_emoji_pool(_get_str("EMOJI_POOL", None)),
 
-        # seu texto “padrão” (continua)
-        welcome_text=_norm(_get_str("WELCOME_TEXT", "Seja bem-vindo(a), {member}! 👋✨")),
+        dm_welcome_enabled=_get_bool("DM_WELCOME_ENABLED", True),
 
-        # aqui entram os 19 (ou quantos você quiser)
+        welcome_text=_norm(_get_str("WELCOME_TEXT", "{member} chegou!")),
         welcome_text_variants=_parse_list(_get_str("WELCOME_TEXT_VARIANTS", None)),
 
-        # DM fallback (curta e diferente do servidor)
         dm_welcome_text=_norm(_get_str(
             "DM_WELCOME_TEXT",
-            "👋 Oi {member}! Bem-vindo(a) ao **Duki Odyssey ®** 🌌✨\n\nSe quiser, manda um oi no chat e entra na resenha 😄",
+            "👋 Oi {member}! Aqui é o **Robô Duki** 💜\n\nBem-vindo(a) ao servidor! Chega na resenha 😄",
         )),
+
+        enable_stats_tracking=_get_bool("ENABLE_STATS_TRACKING", False),
     )
