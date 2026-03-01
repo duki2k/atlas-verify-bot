@@ -44,7 +44,7 @@ class RoboDukiBot(commands.Bot):
             app_id = app.id
 
         try:
-                  try:
+            try:
             local_cmds = self.tree.get_commands()
             logger.info("DEBUG local commands: %s", [c.name for c in local_cmds])
 
@@ -68,16 +68,6 @@ class RoboDukiBot(commands.Bot):
 
         except Exception:
             logger.exception("Hard overwrite of commands failed.")
-            try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(msg, ephemeral=True)
-                else:
-                    await interaction.response.send_message(msg, ephemeral=True)
-            except Exception:
-                pass
-            return
-
-        logger.exception("App command error: %s", error)
         try:
             if interaction.response.is_done():
                 await interaction.followup.send("⛔ Erro ao executar. Veja Diagnostics.", ephemeral=True)
