@@ -14,7 +14,7 @@ START_TIME = time.time()
 
 try:
     import psutil  # type: ignore
-except Exception:  # pragma: no cover
+except Exception:
     psutil = None
 
 
@@ -56,9 +56,7 @@ class AdminCog(commands.Cog):
         self.bot = bot
 
     def _thumb(self, guild: discord.Guild | None) -> str | None:
-        if guild and guild.icon:
-            return guild.icon.url
-        return None
+        return guild.icon.url if guild and guild.icon else None
 
     @app_commands.command(name="ping", description="Latência e saúde do Robô Duki (admin).")
     @app_commands.checks.has_permissions(administrator=True)
@@ -104,7 +102,6 @@ class AdminCog(commands.Cog):
         online = sum(1 for m in guild.members if m.status in (discord.Status.online, discord.Status.idle, discord.Status.dnd))
         bots = sum(1 for m in guild.members if m.bot)
 
-        # cargos (sem ranking): só contagens + opcional lista alfabética (limitada)
         roles = [r for r in guild.roles if not r.is_default()]
         roles_with_members = [r for r in roles if len(r.members) > 0]
 
@@ -126,22 +123,14 @@ class AdminCog(commands.Cog):
         e.add_field(name="🧩 Cargos (com membros)", value=f"**{len(roles_with_members)}**", inline=True)
 
         if listar_cargos:
-            # alfabético = “não ranking”
             roles_sorted = sorted(roles_with_members, key=lambda r: r.name.lower())
-            lines = []
-            # limita por tamanho do embed (mantém elegante)
-            for r in roles_sorted[:25]:
-                lines.append(f"• {r.mention}: `{len(r.members)}`")
+            lines = [f"• {r.mention}: `{len(r.members)}`" for r in roles_sorted[:25]]
             txt = "\n".join(lines) if lines else "_nenhum cargo com membros_"
             if len(roles_sorted) > 25:
                 txt += f"\n… + `{len(roles_sorted) - 25}` cargos"
             e.add_field(name="📜 Cargos (A→Z)", value=txt, inline=False)
         else:
-            e.add_field(
-                name="ℹ️ Dica",
-                value="Use `/status listar_cargos:true` pra listar cargos (A→Z).",
-                inline=False,
-            )
+            e.add_field(name="ℹ️ Dica", value="Use `/status listar_cargos:true` pra listar cargos (A→Z).", inline=False)
 
         await interaction.response.send_message(embed=e, ephemeral=True)
 
@@ -164,7 +153,7 @@ class AdminCog(commands.Cog):
         e.add_field(name="🧰 Python", value=f"`{platform.python_version()}`", inline=True)
 
         e.add_field(name="🖥️ SO", value=f"`{platform.system()} {platform.release()}`", inline=True)
-        e.add_field(name="📦 Process", value=f"`{os.getpid()}`", inline=True)
+        e.add_field(name="📦 PID", value=f"`{os.getpid()}`", inline=True)
         e.add_field(name="🧠 Mode", value="guild-only commands", inline=True)
 
         if psutil:
@@ -179,7 +168,7 @@ class AdminCog(commands.Cog):
             except Exception:
                 e.add_field(name="⚠️ psutil", value="Falhou ao ler métricas do host.", inline=False)
         else:
-            e.add_field(name="⚠️ psutil", value="Não instalado/indisponível. (Host pode bloquear).", inline=False)
+            e.add_field(name="⚠️ psutil", value="Não instalado/indisponível.", inline=False)
 
         await interaction.response.send_message(embed=e, ephemeral=True)
 
@@ -188,7 +177,6 @@ class AdminCog(commands.Cog):
     async def about(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         app_id = getattr(self.bot, "application_id", None) or "auto"
-
         cmds = self.bot.tree.get_commands()
         cmd_names = ", ".join(f"`/{c.name}`" for c in cmds)
 
@@ -199,86 +187,14 @@ class AdminCog(commands.Cog):
             author_name=settings.bot_name,
             author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
         )
-        e.description = f"{retro_divider()}\n💜 **robô duk i / arcade build**\n{retro_divider()}"
+        e.description = f"{retro_divider()}\n💜 **robô duki / arcade build**\n{retro_divider()}"
 
         e.add_field(name="🤖 Bot", value=f"**{settings.bot_name}**", inline=True)
         e.add_field(name="🆔 App ID", value=f"`{app_id}`", inline=True)
-        e.add_field(name="🧩 Comandos", value=f"{cmd_names}", inline=False)
-
-        e.add_field(name="📌 Regras", value=f"Comandos só em <#{settings.admin_channel_id}> (admin).", inline=False)
-        e.add_field(name="🕒 Uptime", value=f"**{_fmt_uptime(_uptime_seconds())}**", inline=True)
-        e.add_field(name="🏁 Build", value="neon purple • retro ui", inline=True)
+        e.add_field(name="🧩 Comandos", value=cmd_names, inline=False)
+        e.add_field(name="📌 Regra", value=f"Comandos só em <#{settings.admin_channel_id}> (admin).", inline=False)
 
         await interaction.response.send_message(embed=e, ephemeral=True)
-
-    @app_commands.command(name="clean", description="Limpa mensagens de um canal (admin).")
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def clean(
-        self,
-        interaction: discord.Interaction,
-        canal: discord.TextChannel,
-        tudo: bool = False,
-        lotes: app_commands.Range[int, 1, 50] = 5,
-        apagar_fixadas: bool = False,
-    ) -> None:
-        await interaction.response.defer(ephemeral=True)
-
-        deleted_total = 0
-        loops = 999999 if tudo else lotes
-
-        def check(m: discord.Message) -> bool:
-            if not apagar_fixadas and m.pinned:
-                return False
-            return True
-
-        for _ in range(loops):
-            deleted = await canal.purge(limit=100, check=check, bulk=True)
-            deleted_total += len(deleted)
-            if len(deleted) < 2:
-                break
-
-        e = make_embed(
-            title="CLEAN",
-            footer=settings.bot_name,
-            author_name=f"{settings.bot_name} • cleanup",
-            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
-        )
-        e.description = f"{retro_divider()}\n🧹 **limpeza concluída**\n{retro_divider()}"
-
-        e.add_field(name="📍 Canal", value=canal.mention, inline=False)
-        e.add_field(name="✅ Apagadas", value=f"**{deleted_total}**", inline=True)
-        e.add_field(name="⚙️ Modo", value=("TUDO" if tudo else f"{lotes} lote(s)"), inline=True)
-        e.add_field(name="📌 Fixadas", value=("apagar" if apagar_fixadas else "preservar"), inline=True)
-        e.add_field(
-            name="ℹ️ Nota",
-            value="Mensagens muito antigas podem não ser removidas pela API. Para zerar 100%, use `/reset_channel`.",
-            inline=False,
-        )
-
-        await interaction.followup.send(embed=e, ephemeral=True)
-
-    @app_commands.command(name="reset_channel", description="Zera 100% o canal (clona e apaga o original).")
-    @app_commands.checks.has_permissions(manage_channels=True)
-    async def reset_channel(self, interaction: discord.Interaction, canal: discord.TextChannel) -> None:
-        await interaction.response.defer(ephemeral=True)
-
-        new_ch = await canal.clone(reason=f"Reset solicitado por {interaction.user}")
-        await new_ch.edit(position=canal.position, category=canal.category)
-        await canal.delete(reason=f"Reset solicitado por {interaction.user}")
-
-        e = make_embed(
-            title="RESET",
-            footer=settings.bot_name,
-            author_name=f"{settings.bot_name} • channel ops",
-            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
-        )
-        e.description = f"{retro_divider()}\n♻️ **canal resetado**\n{retro_divider()}"
-
-        e.add_field(name="🆕 Novo canal", value=new_ch.mention, inline=False)
-        e.add_field(name="⚠️ Atenção", value="ID mudou. Se canal estiver em env var, atualize.", inline=False)
-        e.add_field(name="✅ Dica", value="Reset é o único método sem limite/idade pra limpar tudo.", inline=False)
-
-        await interaction.followup.send(embed=e, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
