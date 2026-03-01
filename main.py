@@ -53,7 +53,7 @@ class RoboDukiBot(commands.Bot):
             logger.info("Global commands overwritten with EMPTY list (nuked).")
 
             # 2) ✅ OVERWRITE guild com os comandos LOCAIS (globais) do bot
-            payload = [c.to_dict() for c in local_cmds]
+            payload = [c.to_dict(self.tree) for c in local_cmds]
 
             for g in self.guilds:
                 await self.http.bulk_upsert_guild_commands(app_id, g.id, payload)
