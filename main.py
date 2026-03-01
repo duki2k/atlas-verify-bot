@@ -23,6 +23,7 @@ class RoboDukiBot(commands.Bot):
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.cleanup")
         await self.load_extension("cogs.messages")
+        await self.load_extension("cogs.rules")
 
         # comandos só no canal admin
         async def only_admin_channel(interaction: discord.Interaction) -> bool:
