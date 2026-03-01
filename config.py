@@ -10,6 +10,7 @@ class Settings:
     log_channel_id: int | None
     dm_welcome_enabled: bool
     announce_channel_id: int | None
+    member_role_id: int | None
 
 
 def _get_int(name: str, default: int | None = None) -> int | None:
@@ -33,9 +34,9 @@ def load_settings() -> Settings:
 
     log_id = _get_int("LOG_CHANNEL_ID", None)
     announce_id = _get_int("ANNOUNCE_CHANNEL_ID", None)
+    member_role_id = _get_int("MEMBER_ROLE_ID", None)
 
     dm_enabled = os.getenv("DM_WELCOME_ENABLED", "1").strip() in ("1", "true", "True", "yes", "YES")
-
     bot_name = os.getenv("BOT_NAME", "Robô Duki").strip() or "Robô Duki"
 
     return Settings(
@@ -45,4 +46,5 @@ def load_settings() -> Settings:
         log_channel_id=int(log_id) if log_id else None,
         dm_welcome_enabled=dm_enabled,
         announce_channel_id=int(announce_id) if announce_id else None,
+        member_role_id=int(member_role_id) if member_role_id else None,
     )
