@@ -37,3 +37,28 @@ def load_settings() -> Settings:
         log_channel_id=int(log_id) if log_id else None,
         dm_welcome_enabled=dm_enabled,
     )
+    # ... imports e Settings acima
+
+@dataclass
+class Settings:
+    discord_token: str
+    bot_name: str
+    admin_channel_id: int
+    log_channel_id: int | None
+    dm_welcome_enabled: bool
+    announce_channel_id: int | None  # 👈 ADICIONE
+
+
+def load_settings() -> Settings:
+    # ... o que você já tem
+
+    announce_id = _get_int("ANNOUNCE_CHANNEL_ID", None)
+
+    return Settings(
+        discord_token=token,
+        bot_name=os.getenv("BOT_NAME", "Robô Duki").strip() or "Robô Duki",
+        admin_channel_id=int(admin_id),
+        log_channel_id=int(log_id) if log_id else None,
+        dm_welcome_enabled=dm_enabled,
+        announce_channel_id=int(announce_id) if announce_id else None,  # 👈 ADICIONE
+    )
