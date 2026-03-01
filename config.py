@@ -9,13 +9,17 @@ class Settings:
     admin_channel_id: int
     log_channel_id: int | None
     dm_welcome_enabled: bool
+    announce_channel_id: int | None
 
 
 def _get_int(name: str, default: int | None = None) -> int | None:
     v = os.getenv(name)
     if v is None or v.strip() == "":
         return default
-    return int(v.strip())
+    try:
+        return int(v.strip())
+    except ValueError as e:
+        raise RuntimeError(f"Env var {name} precisa ser inteiro. Valor atual: {v!r}") from e
 
 
 def load_settings() -> Settings:
@@ -28,37 +32,17 @@ def load_settings() -> Settings:
         raise RuntimeError("ADMIN_CHANNEL_ID não definido.")
 
     log_id = _get_int("LOG_CHANNEL_ID", None)
-    dm_enabled = os.getenv("DM_WELCOME_ENABLED", "1").strip() in ("1", "true", "True", "yes", "YES")
-
-    return Settings(
-        discord_token=token,
-        bot_name=os.getenv("BOT_NAME", "Robô Duki").strip() or "Robô Duki",
-        admin_channel_id=int(admin_id),
-        log_channel_id=int(log_id) if log_id else None,
-        dm_welcome_enabled=dm_enabled,
-    )
-    # ... imports e Settings acima
-
-@dataclass
-class Settings:
-    discord_token: str
-    bot_name: str
-    admin_channel_id: int
-    log_channel_id: int | None
-    dm_welcome_enabled: bool
-    announce_channel_id: int | None  # 👈 ADICIONE
-
-
-def load_settings() -> Settings:
-    # ... o que você já tem
-
     announce_id = _get_int("ANNOUNCE_CHANNEL_ID", None)
 
+    dm_enabled = os.getenv("DM_WELCOME_ENABLED", "1").strip() in ("1", "true", "True", "yes", "YES")
+
+    bot_name = os.getenv("BOT_NAME", "Robô Duki").strip() or "Robô Duki"
+
     return Settings(
         discord_token=token,
-        bot_name=os.getenv("BOT_NAME", "Robô Duki").strip() or "Robô Duki",
+        bot_name=bot_name,
         admin_channel_id=int(admin_id),
         log_channel_id=int(log_id) if log_id else None,
         dm_welcome_enabled=dm_enabled,
-        announce_channel_id=int(announce_id) if announce_id else None,  # 👈 ADICIONE
+        announce_channel_id=int(announce_id) if announce_id else None,
     )
