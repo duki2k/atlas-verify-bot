@@ -18,12 +18,10 @@ class RoboDukiBot(commands.Bot):
         self._ran = False
 
     async def setup_hook(self) -> None:
-        # ✅ carregue SOMENTE os cogs atuais
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.cleanup")
 
-        # ✅ trava: comandos só no canal admin
         async def only_admin_channel(interaction: discord.Interaction) -> bool:
             if interaction.guild is None:
                 raise app_commands.CheckFailure("Comandos só no servidor.")
@@ -36,34 +34,33 @@ class RoboDukiBot(commands.Bot):
     async def on_ready(self) -> None:
         logger.info("Online como %s (id=%s).", self.user, self.user.id)
 
-        # evita rodar 2x se reconectar
         if self._ran:
             return
         self._ran = True
 
-        # ⚠️ application_id é necessário para chamar bulk_upsert
         app_id = self.application_id
         if not app_id:
-            # fallback (raríssimo)
             app = await self.application_info()
             app_id = app.id
 
         try:
-            # 1) 💣 ZERA comandos globais (isso remove /sync e /setup_verificacao se eram globais)
+            # ✅ DEBUG: lista REAL de comandos carregados (globais)
+            local_cmds = self.tree.get_commands()
+            logger.info("DEBUG local commands: %s", [c.name for c in local_cmds])
+
+            # 1) 💣 ZERA comandos globais na API
             await self.http.bulk_upsert_global_commands(app_id, [])
             logger.info("Global commands overwritten with EMPTY list (nuked).")
 
-            # 2) ✅ GUILD-ONLY: sobrescreve comandos por guild (atualiza rápido e remove o resto)
+            # 2) ✅ OVERWRITE guild com os comandos LOCAIS (globais) do bot
+            payload = [c.to_dict() for c in local_cmds]
+
             for g in self.guilds:
-                guild_obj = discord.Object(id=g.id)
-
-                # monta payload APENAS com os comandos atuais do tree pra essa guild
-                cmds = self.tree.get_commands(guild=guild_obj)
-                payload = [c.to_dict() for c in cmds]
-
-                # overwrite total na API da guild
                 await self.http.bulk_upsert_guild_commands(app_id, g.id, payload)
-                logger.info("Guild commands overwritten: guild=%s (%s) count=%s", g.id, g.name, len(payload))
+                logger.info(
+                    "Guild commands overwritten: guild=%s (%s) count=%s",
+                    g.id, g.name, len(payload)
+                )
 
         except Exception:
             logger.exception("Hard overwrite of commands failed.")
