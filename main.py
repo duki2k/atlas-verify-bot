@@ -18,10 +18,12 @@ class RoboDukiBot(commands.Bot):
         self._ran = False
 
     async def setup_hook(self) -> None:
+        # carrega SOMENTE cogs atuais
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.cleanup")
 
+        # comandos só no canal admin
         async def only_admin_channel(interaction: discord.Interaction) -> bool:
             if interaction.guild is None:
                 raise app_commands.CheckFailure("Comandos só no servidor.")
@@ -34,25 +36,20 @@ class RoboDukiBot(commands.Bot):
     async def on_ready(self) -> None:
         logger.info("Online como %s (id=%s).", self.user, self.user.id)
 
+        # evita rodar duas vezes em reconnect
         if self._ran:
             return
         self._ran = True
 
+        # pega o application id
         app_id = self.application_id
         if not app_id:
             app = await self.application_info()
             app_id = app.id
 
         try:
-            try:
             local_cmds = self.tree.get_commands()
             logger.info("DEBUG local commands: %s", [c.name for c in local_cmds])
-
-            app_id = self.application_id
-            if not app_id:
-                app = await self.application_info()
-                app_id = app.id
-            logger.info("DEBUG app_id: %s", app_id)
 
             payload = [c.to_dict(self.tree) for c in local_cmds]
             logger.info("DEBUG payload_count: %s", len(payload))
@@ -68,6 +65,21 @@ class RoboDukiBot(commands.Bot):
 
         except Exception:
             logger.exception("Hard overwrite of commands failed.")
+
+    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        # erros de check (canal admin, permissão, etc.)
+        if isinstance(error, app_commands.CheckFailure):
+            msg = str(error) or "❌ Comando não permitido aqui."
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await interaction.response.send_message(msg, ephemeral=True)
+            except Exception:
+                pass
+            return
+
+        logger.exception("App command error: %s", error)
         try:
             if interaction.response.is_done():
                 await interaction.followup.send("⛔ Erro ao executar. Veja Diagnostics.", ephemeral=True)
