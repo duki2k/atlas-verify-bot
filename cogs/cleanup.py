@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import load_settings
-from utils.embeds import make_embed
+from utils.embeds import make_embed, retro_divider
 
 settings = load_settings()
 
@@ -19,33 +19,44 @@ class CleanupCog(commands.Cog):
         interaction: discord.Interaction,
         canal: discord.TextChannel,
         tudo: bool = False,
-        lotes: app_commands.Range[int, 1, 50] = 5,  # 5 lotes * 100 msgs = 500 por padrão
+        lotes: app_commands.Range[int, 1, 50] = 5,
         apagar_fixadas: bool = False,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
         deleted_total = 0
-        max_loops = 999999 if tudo else lotes
+        loops = 999999 if tudo else lotes
 
         def check(m: discord.Message) -> bool:
             if not apagar_fixadas and m.pinned:
                 return False
             return True
 
-        # purge apaga até 100 por chamada com bulk
-        # e não apaga mensagens muito antigas (limite da API)
-        for _ in range(max_loops):
+        for _ in range(loops):
             deleted = await canal.purge(limit=100, check=check, bulk=True)
             deleted_total += len(deleted)
             if len(deleted) < 2:
                 break
 
-        embed = make_embed(
+        e = make_embed(
             title="CLEAN",
-            description=f"🧹 Canal: {canal.mention}\n✅ Apagadas: **{deleted_total}** mensagens",
-            footer=f"{settings.bot_name}",
+            footer=settings.bot_name,
+            author_name=f"{settings.bot_name} • cleanup",
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        e.description = f"{retro_divider()}\n🧹 **limpeza concluída**\n{retro_divider()}"
+
+        e.add_field(name="📍 Canal", value=canal.mention, inline=False)
+        e.add_field(name="✅ Apagadas", value=f"**{deleted_total}**", inline=True)
+        e.add_field(name="⚙️ Modo", value=("TUDO" if tudo else f"{lotes} lote(s)"), inline=True)
+        e.add_field(name="📌 Fixadas", value=("apagar" if apagar_fixadas else "preservar"), inline=True)
+        e.add_field(
+            name="ℹ️ Nota",
+            value="Mensagens muito antigas podem não ser removidas pela API. Para zerar 100%, use `/reset_channel`.",
+            inline=False,
+        )
+
+        await interaction.followup.send(embed=e, ephemeral=True)
 
     @app_commands.command(name="reset_channel", description="Zera 100% o canal (clona e apaga o original).")
     @app_commands.checks.has_permissions(manage_channels=True)
@@ -56,12 +67,19 @@ class CleanupCog(commands.Cog):
         await new_ch.edit(position=canal.position, category=canal.category)
         await canal.delete(reason=f"Reset solicitado por {interaction.user}")
 
-        embed = make_embed(
+        e = make_embed(
             title="RESET",
-            description=f"♻️ Canal resetado: {new_ch.mention}\n⚠️ Novo canal tem outro ID (se estiver em env var, atualize).",
-            footer=f"{settings.bot_name}",
+            footer=settings.bot_name,
+            author_name=f"{settings.bot_name} • channel ops",
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        e.description = f"{retro_divider()}\n♻️ **canal resetado**\n{retro_divider()}"
+
+        e.add_field(name="🆕 Novo canal", value=new_ch.mention, inline=False)
+        e.add_field(name="⚠️ Atenção", value="ID mudou. Se canal estiver em env var, atualize.", inline=False)
+        e.add_field(name="✅ Dica", value="Reset é o único método sem limite/idade pra limpar tudo.", inline=False)
+
+        await interaction.followup.send(embed=e, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
