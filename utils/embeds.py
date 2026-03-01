@@ -24,11 +24,16 @@ def make_embed(
     footer: str,
     color: int = NEON_PURPLE,
     thumbnail_url: str | None = None,
+    author_name: str | None = None,
+    author_icon: str | None = None,
     timestamp: bool = True,
 ) -> discord.Embed:
     e = discord.Embed(title=retro_header(title), description=description, color=color)
     if thumbnail_url:
         e.set_thumbnail(url=thumbnail_url)
+    if author_name:
+        e.set_author(name=author_name, icon_url=author_icon or discord.Embed.Empty)
+
     if timestamp:
         e.timestamp = dt.datetime.now(dt.timezone.utc)
 
