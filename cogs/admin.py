@@ -1,4 +1,6 @@
+import os
 import time
+import platform
 import datetime as dt
 import discord
 from discord import app_commands
@@ -9,6 +11,11 @@ from utils.embeds import make_embed, retro_divider
 
 settings = load_settings()
 START_TIME = time.time()
+
+try:
+    import psutil  # type: ignore
+except Exception:  # pragma: no cover
+    psutil = None
 
 
 def _uptime_seconds() -> int:
@@ -35,17 +42,25 @@ def _days_since(dt_obj: dt.datetime) -> int:
     return max(0, (now - dt_obj).days)
 
 
-def _percent(part: int, total: int) -> str:
-    if total <= 0:
-        return "0%"
-    return f"{(part / total) * 100:.1f}%"
+def _human_bytes(n: float) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    i = 0
+    while n >= 1024 and i < len(units) - 1:
+        n /= 1024
+        i += 1
+    return f"{n:.1f}{units[i]}"
 
 
 class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="ping", description="Latência e saúde do bot (admin).")
+    def _thumb(self, guild: discord.Guild | None) -> str | None:
+        if guild and guild.icon:
+            return guild.icon.url
+        return None
+
+    @app_commands.command(name="ping", description="Latência e saúde do Robô Duki (admin).")
     @app_commands.checks.has_permissions(administrator=True)
     async def ping(self, interaction: discord.Interaction) -> None:
         created = interaction.created_at
@@ -55,32 +70,30 @@ class AdminCog(commands.Cog):
         up = _fmt_uptime(_uptime_seconds())
 
         guild = interaction.guild
-        thumb = guild.icon.url if guild and guild.icon else None
-
         e = make_embed(
             title="PING",
             footer=settings.bot_name,
-            thumbnail_url=thumb,
+            thumbnail_url=self._thumb(guild),
+            author_name=settings.bot_name,
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
         )
 
-        # Bloco retrô
-        e.description = f"{retro_divider()}\n🕹️ **Sinal do Robô Duki**\n{retro_divider()}"
+        e.description = f"{retro_divider()}\n🕹️ **telemetria ao vivo**\n{retro_divider()}"
 
-        e.add_field(name="🏓 WebSocket (Discord ↔ Bot)", value=f"**{ws_ms} ms**", inline=True)
-        e.add_field(name="⚡ Roundtrip (comando)", value=f"**{roundtrip_ms} ms**", inline=True)
-        e.add_field(name="🕒 Uptime", value=f"**{up}**", inline=False)
+        e.add_field(name="🏓 WebSocket", value=f"**{ws_ms} ms**", inline=True)
+        e.add_field(name="⚡ Roundtrip", value=f"**{roundtrip_ms} ms**", inline=True)
+        e.add_field(name="🕒 Uptime", value=f"**{up}**", inline=True)
 
-        # indicadores rápidos (não é “ping do usuário”, é do bot)
         quality = "🟢 LISO" if ws_ms < 120 else "🟡 OK" if ws_ms < 250 else "🔴 LENTO"
         e.add_field(name="📡 Qualidade", value=quality, inline=True)
-        e.add_field(name="🧠 Shard", value=str(getattr(self.bot, "shard_id", "auto")), inline=True)
-        e.add_field(name="🔧 Versão", value="discord.py 2.x", inline=True)
+        e.add_field(name="🌐 Servidor", value=(guild.name if guild else "DM"), inline=True)
+        e.add_field(name="🧩 Comandos", value=f"`{len(self.bot.tree.get_commands())}` carregados", inline=True)
 
         await interaction.response.send_message(embed=e, ephemeral=True)
 
-    @app_commands.command(name="status", description="Status do servidor: membros, cargos, idade (admin).")
+    @app_commands.command(name="status", description="Painel do servidor (admin). Sem ranking de cargos.")
     @app_commands.checks.has_permissions(administrator=True)
-    async def status(self, interaction: discord.Interaction) -> None:
+    async def status(self, interaction: discord.Interaction, listar_cargos: bool = False) -> None:
         guild = interaction.guild
         if not guild:
             await interaction.response.send_message("Use no servidor.", ephemeral=True)
@@ -88,44 +101,113 @@ class AdminCog(commands.Cog):
 
         total = guild.member_count or len(guild.members)
         days_active = _days_since(guild.created_at)
-
-        # status online (aproximado)
         online = sum(1 for m in guild.members if m.status in (discord.Status.online, discord.Status.idle, discord.Status.dnd))
         bots = sum(1 for m in guild.members if m.bot)
 
-        # contagem por cargos (ignora @everyone)
-        role_counts: list[tuple[discord.Role, int]] = []
-        for role in guild.roles:
-            if role.is_default():
-                continue
-            role_counts.append((role, len(role.members)))
-
-        # ✅ ordena por quantidade (desc), desempate pela posição
-        role_counts.sort(key=lambda x: (x[1], x[0].position), reverse=True)
-
-        # top 10 mais usados
-        top_lines = []
-        for role, cnt in role_counts[:10]:
-            top_lines.append(f"• {role.mention}: `{cnt}` ({_percent(cnt, total)})")
-        top_text = "\n".join(top_lines) if top_lines else "_sem cargos_"
-
-        thumb = guild.icon.url if guild.icon else None
+        # cargos (sem ranking): só contagens + opcional lista alfabética (limitada)
+        roles = [r for r in guild.roles if not r.is_default()]
+        roles_with_members = [r for r in roles if len(r.members) > 0]
 
         e = make_embed(
             title="STATUS",
             footer=settings.bot_name,
-            thumbnail_url=thumb,
+            thumbnail_url=self._thumb(guild),
+            author_name=f"{settings.bot_name} • painel",
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
         )
-
-        e.description = f"{retro_divider()}\n🌌 **Duki Odyssey ® — Painel**\n{retro_divider()}"
+        e.description = f"{retro_divider()}\n🌌 **duki odyssey® • console**\n{retro_divider()}"
 
         e.add_field(name="👥 Membros", value=f"**{total}**", inline=True)
         e.add_field(name="🟢 Online (aprox.)", value=f"**{online}**", inline=True)
         e.add_field(name="🤖 Bots", value=f"**{bots}**", inline=True)
 
-        e.add_field(name="🗓️ Dias desde criação", value=f"**{days_active} dias**", inline=True)
-        e.add_field(name="🏷️ Cargos (total)", value=f"**{len(role_counts)}**", inline=True)
-        e.add_field(name="🧩 Top cargos (por membros)", value=top_text, inline=False)
+        e.add_field(name="🗓️ Idade do servidor", value=f"**{days_active} dias**", inline=True)
+        e.add_field(name="🏷️ Cargos (total)", value=f"**{len(roles)}**", inline=True)
+        e.add_field(name="🧩 Cargos (com membros)", value=f"**{len(roles_with_members)}**", inline=True)
+
+        if listar_cargos:
+            # alfabético = “não ranking”
+            roles_sorted = sorted(roles_with_members, key=lambda r: r.name.lower())
+            lines = []
+            # limita por tamanho do embed (mantém elegante)
+            for r in roles_sorted[:25]:
+                lines.append(f"• {r.mention}: `{len(r.members)}`")
+            txt = "\n".join(lines) if lines else "_nenhum cargo com membros_"
+            if len(roles_sorted) > 25:
+                txt += f"\n… + `{len(roles_sorted) - 25}` cargos"
+            e.add_field(name="📜 Cargos (A→Z)", value=txt, inline=False)
+        else:
+            e.add_field(
+                name="ℹ️ Dica",
+                value="Use `/status listar_cargos:true` pra listar cargos (A→Z).",
+                inline=False,
+            )
+
+        await interaction.response.send_message(embed=e, ephemeral=True)
+
+    @app_commands.command(name="health", description="Saúde do host (CPU/RAM/Disk) + uptime (admin).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def health(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        e = make_embed(
+            title="HEALTH",
+            footer=settings.bot_name,
+            thumbnail_url=self._thumb(guild),
+            author_name=f"{settings.bot_name} • diagnostics",
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
+        )
+        e.description = f"{retro_divider()}\n🧪 **status do host**\n{retro_divider()}"
+
+        ws_ms = int(self.bot.latency * 1000)
+        e.add_field(name="🏓 WebSocket", value=f"**{ws_ms} ms**", inline=True)
+        e.add_field(name="🕒 Uptime", value=f"**{_fmt_uptime(_uptime_seconds())}**", inline=True)
+        e.add_field(name="🧰 Python", value=f"`{platform.python_version()}`", inline=True)
+
+        e.add_field(name="🖥️ SO", value=f"`{platform.system()} {platform.release()}`", inline=True)
+        e.add_field(name="📦 Process", value=f"`{os.getpid()}`", inline=True)
+        e.add_field(name="🧠 Mode", value="guild-only commands", inline=True)
+
+        if psutil:
+            try:
+                cpu = psutil.cpu_percent(interval=0.3)
+                mem = psutil.virtual_memory()
+                disk = psutil.disk_usage("/")
+
+                e.add_field(name="🔥 CPU", value=f"**{cpu:.0f}%**", inline=True)
+                e.add_field(name="🧠 RAM", value=f"**{mem.percent:.0f}%**\n({_human_bytes(mem.used)}/{_human_bytes(mem.total)})", inline=True)
+                e.add_field(name="💾 Disco", value=f"**{disk.percent:.0f}%**\n({_human_bytes(disk.used)}/{_human_bytes(disk.total)})", inline=True)
+            except Exception:
+                e.add_field(name="⚠️ psutil", value="Falhou ao ler métricas do host.", inline=False)
+        else:
+            e.add_field(name="⚠️ psutil", value="Não instalado/indisponível. (Host pode bloquear).", inline=False)
+
+        await interaction.response.send_message(embed=e, ephemeral=True)
+
+    @app_commands.command(name="about", description="Sobre o Robô Duki (admin).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def about(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        app_id = getattr(self.bot, "application_id", None) or "auto"
+
+        cmds = self.bot.tree.get_commands()
+        cmd_names = ", ".join(f"`/{c.name}`" for c in cmds)
+
+        e = make_embed(
+            title="ABOUT",
+            footer=settings.bot_name,
+            thumbnail_url=self._thumb(guild),
+            author_name=settings.bot_name,
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
+        )
+        e.description = f"{retro_divider()}\n💜 **robô duk i / arcade build**\n{retro_divider()}"
+
+        e.add_field(name="🤖 Bot", value=f"**{settings.bot_name}**", inline=True)
+        e.add_field(name="🆔 App ID", value=f"`{app_id}`", inline=True)
+        e.add_field(name="🧩 Comandos", value=f"{cmd_names}", inline=False)
+
+        e.add_field(name="📌 Regras", value=f"Comandos só em <#{settings.admin_channel_id}> (admin).", inline=False)
+        e.add_field(name="🕒 Uptime", value=f"**{_fmt_uptime(_uptime_seconds())}**", inline=True)
+        e.add_field(name="🏁 Build", value="neon purple • retro ui", inline=True)
 
         await interaction.response.send_message(embed=e, ephemeral=True)
 
@@ -152,21 +234,24 @@ class AdminCog(commands.Cog):
         for _ in range(loops):
             deleted = await canal.purge(limit=100, check=check, bulk=True)
             deleted_total += len(deleted)
-            # se apagou quase nada, para
             if len(deleted) < 2:
                 break
 
-        e = make_embed(title="CLEAN", footer=settings.bot_name)
-        e.description = f"{retro_divider()}\n🧹 **Limpeza executada**\n{retro_divider()}"
+        e = make_embed(
+            title="CLEAN",
+            footer=settings.bot_name,
+            author_name=f"{settings.bot_name} • cleanup",
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
+        )
+        e.description = f"{retro_divider()}\n🧹 **limpeza concluída**\n{retro_divider()}"
 
         e.add_field(name="📍 Canal", value=canal.mention, inline=False)
         e.add_field(name="✅ Apagadas", value=f"**{deleted_total}**", inline=True)
         e.add_field(name="⚙️ Modo", value=("TUDO" if tudo else f"{lotes} lote(s)"), inline=True)
         e.add_field(name="📌 Fixadas", value=("apagar" if apagar_fixadas else "preservar"), inline=True)
-
         e.add_field(
             name="ℹ️ Nota",
-            value="Mensagens muito antigas podem não ser removidas por limitações da API do Discord. Para zerar 100%, use `/reset_channel`.",
+            value="Mensagens muito antigas podem não ser removidas pela API. Para zerar 100%, use `/reset_channel`.",
             inline=False,
         )
 
@@ -181,12 +266,17 @@ class AdminCog(commands.Cog):
         await new_ch.edit(position=canal.position, category=canal.category)
         await canal.delete(reason=f"Reset solicitado por {interaction.user}")
 
-        e = make_embed(title="RESET", footer=settings.bot_name)
-        e.description = f"{retro_divider()}\n♻️ **Canal resetado**\n{retro_divider()}"
+        e = make_embed(
+            title="RESET",
+            footer=settings.bot_name,
+            author_name=f"{settings.bot_name} • channel ops",
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
+        )
+        e.description = f"{retro_divider()}\n♻️ **canal resetado**\n{retro_divider()}"
 
         e.add_field(name="🆕 Novo canal", value=new_ch.mention, inline=False)
-        e.add_field(name="⚠️ Atenção", value="O canal novo tem outro ID. Se ele estiver em env var, atualize.", inline=False)
-        e.add_field(name="✅ Dica", value="Use reset quando quiser *limpar tudo* sem limite.", inline=False)
+        e.add_field(name="⚠️ Atenção", value="ID mudou. Se canal estiver em env var, atualize.", inline=False)
+        e.add_field(name="✅ Dica", value="Reset é o único método sem limite/idade pra limpar tudo.", inline=False)
 
         await interaction.followup.send(embed=e, ephemeral=True)
 
