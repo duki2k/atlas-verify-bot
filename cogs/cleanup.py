@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import load_settings
-from utils.embeds import make_embed, retro_divider
+from utils.embeds import make_embed, format_embed_body
 
 settings = load_settings()
 
@@ -12,74 +12,85 @@ class CleanupCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    # -------------------------
+    # /clean (purge)
+    # -------------------------
     @app_commands.command(name="clean", description="Limpa mensagens de um canal (admin).")
-    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def clean(
         self,
         interaction: discord.Interaction,
         canal: discord.TextChannel,
-        tudo: bool = False,
-        lotes: app_commands.Range[int, 1, 50] = 5,
-        apagar_fixadas: bool = False,
+        quantidade: app_commands.Range[int, 1, 1000] = 100,
+        incluir_fixadas: bool = False,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        deleted_total = 0
-        loops = 999999 if tudo else lotes
+        def check(msg: discord.Message) -> bool:
+            if incluir_fixadas:
+                return True
+            return not msg.pinned
 
-        def check(m: discord.Message) -> bool:
-            if not apagar_fixadas and m.pinned:
-                return False
-            return True
+        try:
+            deleted = await canal.purge(limit=quantidade, check=check, bulk=True, reason=f"{settings.bot_name}: clean")
+        except discord.Forbidden:
+            await interaction.followup.send("⛔ Sem permissão para apagar mensagens nesse canal.", ephemeral=True)
+            return
+        except Exception as e:
+            await interaction.followup.send(f"⛔ Falha ao limpar: `{type(e).__name__}`", ephemeral=True)
+            return
 
-        for _ in range(loops):
-            deleted = await canal.purge(limit=100, check=check, bulk=True)
-            deleted_total += len(deleted)
-            if len(deleted) < 2:
-                break
-
-        e = make_embed(
-            title="CLEAN",
+        embed = make_embed(
+            title="LIMPEZA",
             footer=settings.bot_name,
-            author_name=f"{settings.bot_name} • cleanup",
+            author_name=settings.bot_name,
             author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
         )
-        e.description = f"{retro_divider()}\n🧹 **limpeza concluída**\n{retro_divider()}"
-
-        e.add_field(name="📍 Canal", value=canal.mention, inline=False)
-        e.add_field(name="✅ Apagadas", value=f"**{deleted_total}**", inline=True)
-        e.add_field(name="⚙️ Modo", value=("TUDO" if tudo else f"{lotes} lote(s)"), inline=True)
-        e.add_field(name="📌 Fixadas", value=("apagar" if apagar_fixadas else "preservar"), inline=True)
-        e.add_field(
-            name="ℹ️ Nota",
-            value="Mensagens muito antigas podem não ser removidas pela API. Para zerar 100%, use `/reset_channel`.",
-            inline=False,
+        body = (
+            f"🧹 Canal: {canal.mention}\n"
+            f"🗑️ Removidas: **{len(deleted)}** mensagens\n"
+            f"📌 Fixadas incluídas: **{'sim' if incluir_fixadas else 'não'}**\n"
         )
+        embed.description = format_embed_body(body)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
-        await interaction.followup.send(embed=e, ephemeral=True)
-
-    @app_commands.command(name="reset_channel", description="Zera 100% o canal (clona e apaga o original).")
-    @app_commands.checks.has_permissions(manage_channels=True)
+    # -------------------------
+    # /reset_channel (clona e remove o antigo)
+    # -------------------------
+    @app_commands.command(name="reset_channel", description="Reseta um canal (clona e remove o antigo) (admin).")
+    @app_commands.checks.has_permissions(administrator=True)
     async def reset_channel(self, interaction: discord.Interaction, canal: discord.TextChannel) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        new_ch = await canal.clone(reason=f"Reset solicitado por {interaction.user}")
-        await new_ch.edit(position=canal.position, category=canal.category)
-        await canal.delete(reason=f"Reset solicitado por {interaction.user}")
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Use no servidor.", ephemeral=True)
+            return
 
-        e = make_embed(
-            title="RESET",
+        try:
+            new_ch = await canal.clone(reason=f"{settings.bot_name}: reset_channel")
+            await new_ch.edit(position=canal.position)
+            await canal.delete(reason=f"{settings.bot_name}: reset_channel")
+        except discord.Forbidden:
+            await interaction.followup.send("⛔ Sem permissão para clonar/deletar canal.", ephemeral=True)
+            return
+        except Exception as e:
+            await interaction.followup.send(f"⛔ Falha ao resetar canal: `{type(e).__name__}`", ephemeral=True)
+            return
+
+        embed = make_embed(
+            title="RESET DE CANAL",
             footer=settings.bot_name,
-            author_name=f"{settings.bot_name} • channel ops",
+            author_name=settings.bot_name,
             author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
         )
-        e.description = f"{retro_divider()}\n♻️ **canal resetado**\n{retro_divider()}"
+        body = (
+            f"♻️ Canal resetado com sucesso.\n"
+            f"✅ Novo canal: {new_ch.mention}\n"
+        )
+        embed.description = format_embed_body(body)
 
-        e.add_field(name="🆕 Novo canal", value=new_ch.mention, inline=False)
-        e.add_field(name="⚠️ Atenção", value="ID mudou. Se canal estiver em env var, atualize.", inline=False)
-        e.add_field(name="✅ Dica", value="Reset é o único método sem limite/idade pra limpar tudo.", inline=False)
-
-        await interaction.followup.send(embed=e, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
