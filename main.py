@@ -1,3 +1,4 @@
+import time
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -11,21 +12,27 @@ logger = setup_logging()
 intents = discord.Intents.default()
 intents.members = True  # join/leave
 
+# Se você quiser remover o WARNING "Privileged message content intent is missing",
+# ative isso e habilite "Message Content Intent" no Discord Developer Portal do bot.
+# Para slash commands puros, não é obrigatório.
+# intents.message_content = True
+
 
 class RoboDukiBot(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents)
         self._ran = False
+        self._start_time = time.time()
 
     async def setup_hook(self) -> None:
-        # carrega SOMENTE cogs atuais
+        # Cogs atuais
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.cleanup")
         await self.load_extension("cogs.messages")
         await self.load_extension("cogs.rules")
 
-        # comandos só no canal admin
+        # Comandos apenas no canal admin
         async def only_admin_channel(interaction: discord.Interaction) -> bool:
             if interaction.guild is None:
                 raise app_commands.CheckFailure("Comandos só no servidor.")
@@ -56,10 +63,12 @@ class RoboDukiBot(commands.Bot):
             payload = [c.to_dict(self.tree) for c in local_cmds]
             logger.info("DEBUG payload_count: %s", len(payload))
 
+            # 1) Zera global (para não “vazar” comandos fora do guild)
             logger.info("STEP 1: overwriting GLOBAL commands -> empty")
             await self.http.bulk_upsert_global_commands(app_id, [])
             logger.info("OK 1: Global commands overwritten with EMPTY list (nuked).")
 
+            # 2) Publica comandos no(s) guild(s) onde o bot está
             for g in self.guilds:
                 logger.info("STEP 2: overwriting GUILD commands -> guild=%s (%s)", g.id, g.name)
                 await self.http.bulk_upsert_guild_commands(app_id, g.id, payload)
@@ -68,7 +77,11 @@ class RoboDukiBot(commands.Bot):
         except Exception:
             logger.exception("Hard overwrite of commands failed.")
 
-    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    async def on_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
         # erros de check (canal admin, permissão, etc.)
         if isinstance(error, app_commands.CheckFailure):
             msg = str(error) or "❌ Comando não permitido aqui."
