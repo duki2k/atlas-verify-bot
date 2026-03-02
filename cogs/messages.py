@@ -3,13 +3,13 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import load_settings
-from utils.embeds import make_embed, retro_divider
+from utils.embeds import make_embed, format_embed_body
 
 settings = load_settings()
 
 
 def _safe_allowed_mentions(pingar: bool) -> discord.AllowedMentions:
-    # evita o bot pingar geral/roles sem querer
+    # Evita ping acidental em everyone/cargos.
     if pingar:
         return discord.AllowedMentions(everyone=True, roles=True, users=True)
     return discord.AllowedMentions(everyone=False, roles=False, users=True)
@@ -33,7 +33,6 @@ class MessagesCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        # limite do Discord (texto)
         if len(mensagem) > 2000:
             await interaction.followup.send("⚠️ A mensagem passou de 2000 caracteres. Reduza o texto.", ephemeral=True)
             return
@@ -61,21 +60,25 @@ class MessagesCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        # limites de embed (conservador)
         if len(titulo) > 256:
             await interaction.followup.send("⚠️ Título muito grande (máx 256).", ephemeral=True)
             return
-        if len(texto) > 3500:
+
+        # limite conservador para description
+        if len(texto) > 3800:
             await interaction.followup.send("⚠️ Texto muito grande. Reduza um pouco.", ephemeral=True)
             return
 
         embed = make_embed(
-            title=titulo.upper(),
+            title=titulo.strip(),
             footer=settings.bot_name,
             author_name=settings.bot_name,
             author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
+            thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
         )
-        embed.description = f"{retro_divider()}\n🕹️ **{titulo}**\n{retro_divider()}\n\n{texto}"
+
+        # ✅ NÃO repetir o título no corpo
+        embed.description = format_embed_body(texto, add_divider_top=True, add_divider_bottom=False)
 
         try:
             await canal.send(embed=embed, allowed_mentions=_safe_allowed_mentions(pingar))
@@ -86,7 +89,7 @@ class MessagesCog(commands.Cog):
         await interaction.followup.send(f"✅ Embed enviado em {canal.mention}", ephemeral=True)
 
     # =========================
-    # /anuncio  (canal fixo por env)
+    # /anuncio (canal fixo via env)
     # =========================
     @app_commands.command(name="anuncio", description="Enviar anúncio no canal oficial de anúncios (admin).")
     @app_commands.checks.has_permissions(administrator=True)
@@ -113,14 +116,26 @@ class MessagesCog(commands.Cog):
             await interaction.followup.send("⚠️ ANNOUNCE_CHANNEL_ID inválido (canal não encontrado).", ephemeral=True)
             return
 
+        if len(titulo) > 256:
+            await interaction.followup.send("⚠️ Título muito grande (máx 256).", ephemeral=True)
+            return
+
+        if len(texto) > 3800:
+            await interaction.followup.send("⚠️ Texto muito grande. Reduza um pouco.", ephemeral=True)
+            return
+
         embed = make_embed(
             title="ANÚNCIO",
             footer=settings.bot_name,
-            author_name=settings.bot_name,
+            author_name=f"{settings.bot_name} • avisos",
             author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
             thumbnail_url=guild.icon.url if guild.icon else None,
         )
-        embed.description = f"{retro_divider()}\n📣 **{titulo}**\n{retro_divider()}\n\n{texto}"
+
+        # Cabeçalho curto dentro do texto, sem repetir "ANÚNCIO"
+        # (o título do embed já é ANÚNCIO)
+        body = f"📣 **{titulo.strip()}**\n\n{texto.strip()}"
+        embed.description = format_embed_body(body, add_divider_top=True, add_divider_bottom=False)
 
         content = "@everyone" if pingar_everyone else None
 
