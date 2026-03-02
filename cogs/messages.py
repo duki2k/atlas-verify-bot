@@ -9,10 +9,29 @@ settings = load_settings()
 
 
 def _safe_allowed_mentions(pingar: bool) -> discord.AllowedMentions:
-    # Evita ping acidental em everyone/cargos.
     if pingar:
         return discord.AllowedMentions(everyone=True, roles=True, users=True)
     return discord.AllowedMentions(everyone=False, roles=False, users=True)
+
+
+async def _read_text_attachment(attachment: discord.Attachment, max_chars: int = 3800) -> str:
+    # aceita txt/md
+    name = (attachment.filename or "").lower()
+    if not (name.endswith(".txt") or name.endswith(".md")):
+        raise ValueError("Envie um arquivo .txt ou .md")
+
+    data = await attachment.read()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = data.decode("latin-1")
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        raise ValueError("Arquivo vazio.")
+    if len(text) > max_chars:
+        raise ValueError(f"Texto muito grande (>{max_chars} chars).")
+    return text
 
 
 class MessagesCog(commands.Cog):
@@ -20,7 +39,7 @@ class MessagesCog(commands.Cog):
         self.bot = bot
 
     # =========================
-    # /enviar
+    # /enviar (texto)
     # =========================
     @app_commands.command(name="enviar", description="Enviar uma mensagem (texto) em um canal (admin).")
     @app_commands.checks.has_permissions(administrator=True)
@@ -46,9 +65,9 @@ class MessagesCog(commands.Cog):
         await interaction.followup.send(f"✅ Enviado em {canal.mention}", ephemeral=True)
 
     # =========================
-    # /enviarembed
+    # /enviarembed (curto) — mantém
     # =========================
-    @app_commands.command(name="enviarembed", description="Enviar um embed premium em um canal (admin).")
+    @app_commands.command(name="enviarembed", description="Enviar um embed premium (texto curto) em um canal (admin).")
     @app_commands.checks.has_permissions(administrator=True)
     async def enviarembed(
         self,
@@ -63,10 +82,8 @@ class MessagesCog(commands.Cog):
         if len(titulo) > 256:
             await interaction.followup.send("⚠️ Título muito grande (máx 256).", ephemeral=True)
             return
-
-        # limite conservador para description
         if len(texto) > 3800:
-            await interaction.followup.send("⚠️ Texto muito grande. Reduza um pouco.", ephemeral=True)
+            await interaction.followup.send("⚠️ Texto muito grande. Para textos longos, use /enviarembed_txt ou /enviarembed_msg.", ephemeral=True)
             return
 
         embed = make_embed(
@@ -76,9 +93,7 @@ class MessagesCog(commands.Cog):
             author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
             thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
         )
-
-        # ✅ NÃO repetir o título no corpo
-        embed.description = format_embed_body(texto, add_divider_top=True, add_divider_bottom=False)
+        embed.description = format_embed_body(texto, add_divider_top=True)
 
         try:
             await canal.send(embed=embed, allowed_mentions=_safe_allowed_mentions(pingar))
@@ -89,7 +104,118 @@ class MessagesCog(commands.Cog):
         await interaction.followup.send(f"✅ Embed enviado em {canal.mention}", ephemeral=True)
 
     # =========================
-    # /anuncio (canal fixo via env)
+    # /enviarembed_msg (melhor para texto longo)
+    # =========================
+    @app_commands.command(
+        name="enviarembed_msg",
+        description="Envia embed pegando o texto de uma mensagem existente (ideal para texto longo com quebras).",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def enviarembed_msg(
+        self,
+        interaction: discord.Interaction,
+        canal: discord.TextChannel,
+        titulo: str,
+        mensagem_id: str,
+        pingar: bool = False,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        if len(titulo) > 256:
+            await interaction.followup.send("⚠️ Título muito grande (máx 256).", ephemeral=True)
+            return
+
+        try:
+            mid = int(mensagem_id.strip())
+        except ValueError:
+            await interaction.followup.send("⚠️ mensagem_id inválido. Use o ID da mensagem (Modo desenvolvedor).", ephemeral=True)
+            return
+
+        # busca a mensagem no canal atual onde o comando foi usado
+        # (onde você escreveu o texto com ENTER)
+        src_channel = interaction.channel
+        if not isinstance(src_channel, discord.TextChannel):
+            await interaction.followup.send("Use esse comando em um canal de texto do servidor.", ephemeral=True)
+            return
+
+        try:
+            msg = await src_channel.fetch_message(mid)
+        except Exception:
+            await interaction.followup.send("⚠️ Não consegui encontrar essa mensagem nesse canal.", ephemeral=True)
+            return
+
+        text = (msg.content or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not text:
+            await interaction.followup.send("⚠️ A mensagem está vazia (sem texto).", ephemeral=True)
+            return
+        if len(text) > 3800:
+            await interaction.followup.send("⚠️ Texto muito grande. Divida em 2 embeds ou reduza um pouco.", ephemeral=True)
+            return
+
+        embed = make_embed(
+            title=titulo.strip(),
+            footer=settings.bot_name,
+            author_name=settings.bot_name,
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
+            thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
+        )
+        embed.description = format_embed_body(text, add_divider_top=True)
+
+        try:
+            await canal.send(embed=embed, allowed_mentions=_safe_allowed_mentions(pingar))
+        except Exception as e:
+            await interaction.followup.send(f"⛔ Falha ao enviar embed: `{type(e).__name__}`", ephemeral=True)
+            return
+
+        await interaction.followup.send(f"✅ Embed enviado em {canal.mention}", ephemeral=True)
+
+    # =========================
+    # /enviarembed_txt (melhor para regras fixas)
+    # =========================
+    @app_commands.command(
+        name="enviarembed_txt",
+        description="Envia embed lendo o texto de um arquivo .txt/.md anexado (ideal para regras/avisos).",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def enviarembed_txt(
+        self,
+        interaction: discord.Interaction,
+        canal: discord.TextChannel,
+        titulo: str,
+        arquivo: discord.Attachment,
+        pingar: bool = False,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        if len(titulo) > 256:
+            await interaction.followup.send("⚠️ Título muito grande (máx 256).", ephemeral=True)
+            return
+
+        try:
+            text = await _read_text_attachment(arquivo, max_chars=3800)
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ Não consegui ler o arquivo: {e}", ephemeral=True)
+            return
+
+        embed = make_embed(
+            title=titulo.strip(),
+            footer=settings.bot_name,
+            author_name=settings.bot_name,
+            author_icon=self.bot.user.display_avatar.url if self.bot.user else None,
+            thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
+        )
+        embed.description = format_embed_body(text, add_divider_top=True)
+
+        try:
+            await canal.send(embed=embed, allowed_mentions=_safe_allowed_mentions(pingar))
+        except Exception as e:
+            await interaction.followup.send(f"⛔ Falha ao enviar embed: `{type(e).__name__}`", ephemeral=True)
+            return
+
+        await interaction.followup.send(f"✅ Embed enviado em {canal.mention}", ephemeral=True)
+
+    # =========================
+    # /anuncio
     # =========================
     @app_commands.command(name="anuncio", description="Enviar anúncio no canal oficial de anúncios (admin).")
     @app_commands.checks.has_permissions(administrator=True)
@@ -119,9 +245,8 @@ class MessagesCog(commands.Cog):
         if len(titulo) > 256:
             await interaction.followup.send("⚠️ Título muito grande (máx 256).", ephemeral=True)
             return
-
         if len(texto) > 3800:
-            await interaction.followup.send("⚠️ Texto muito grande. Reduza um pouco.", ephemeral=True)
+            await interaction.followup.send("⚠️ Texto muito grande. Para texto longo, use /enviarembed_txt e poste no canal.", ephemeral=True)
             return
 
         embed = make_embed(
@@ -132,10 +257,8 @@ class MessagesCog(commands.Cog):
             thumbnail_url=guild.icon.url if guild.icon else None,
         )
 
-        # Cabeçalho curto dentro do texto, sem repetir "ANÚNCIO"
-        # (o título do embed já é ANÚNCIO)
         body = f"📣 **{titulo.strip()}**\n\n{texto.strip()}"
-        embed.description = format_embed_body(body, add_divider_top=True, add_divider_bottom=False)
+        embed.description = format_embed_body(body, add_divider_top=True)
 
         content = "@everyone" if pingar_everyone else None
 
