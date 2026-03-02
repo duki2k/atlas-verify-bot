@@ -7,7 +7,6 @@ from utils.embeds import make_embed, retro_divider
 
 settings = load_settings()
 
-# custom_id fixo = view persistente (continua funcionando após restart)
 AGREE_BUTTON_ID = "robo_duki_rules_agree_v1"
 
 
@@ -22,41 +21,49 @@ def build_rules_embed(guild: discord.Guild | None, bot_user: discord.ClientUser 
         author_icon=bot_user.display_avatar.url if bot_user else None,
     )
 
-    # Layout gamer/arcade (bem legível)
     e.description = (
+        f"🎮 **Duki Odyssey ® — Regras da Comunidade**\n"
         f"{retro_divider()}\n"
-        f"🎮 **LEIA E CONFIRME PARA LIBERAR O ACESSO**\n"
-        f"{retro_divider()}\n\n"
-        f"💜 Este servidor é pra amizade, resenha e jogo.\n"
-        f"✅ Respeito e bom senso são obrigatórios.\n"
+        f"💜 Aqui é resenha e jogo. **Respeito e bom senso são obrigatórios.**\n"
+        f"{retro_divider()}\n"
     )
 
     e.add_field(
         name="🧠 Convivência",
         value=(
-            "• Sem ataques, humilhação, preconceito ou assédio\n"
-            "• Zoação ok ✅ / falta de respeito não ❌\n"
-            "• Se alguém pedir pra parar, parou."
+            "• Sem ataques, preconceito, assédio ou humilhação\n"
+            "• Zoação ok ✅ / desrespeito não ❌\n"
+            "• Se alguém pedir pra parar, **parou**"
         ),
         inline=False,
     )
 
     e.add_field(
-        name="💬 Uso dos canais",
+        name="💬 Uso do servidor",
         value=(
-            "• Evite spam/flood e marcações desnecessárias\n"
-            "• Use cada canal pro seu propósito\n"
-            "• LFG é pra chamar pra jogar — não pra briga 😈"
+            "• Evite spam/flood e excesso de mensagens/emojis\n"
+            "• Use os canais corretamente (cada um tem um propósito)\n"
+            "• Evite marcações desnecessárias (@everyone/cargos)"
         ),
         inline=False,
     )
 
     e.add_field(
-        name="🚫 Proibido",
+        name="🚫 Conteúdo proibido",
         value=(
-            "• Conteúdo +18, gore, violência extrema\n"
-            "• Links suspeitos, golpes, phishing, vírus\n"
-            "• Qualquer tentativa de prejudicar membros"
+            "• +18, gore ou violência extrema\n"
+            "• Links suspeitos, golpes, phishing ou vírus\n"
+            "• Qualquer atitude mal-intencionada contra membros"
+        ),
+        inline=False,
+    )
+
+    e.add_field(
+        name="📢 Divulgação",
+        value=(
+            "• Somente nos canais apropriados\n"
+            "• Proibido vender produtos/contas/serviços\n"
+            "• Parcerias: fale com a staff"
         ),
         inline=False,
     )
@@ -64,21 +71,21 @@ def build_rules_embed(guild: discord.Guild | None, bot_user: discord.ClientUser 
     e.add_field(
         name="🔒 Privacidade",
         value=(
-            "• Não poste dados pessoais (seu ou de terceiros)\n"
-            "• Problemas no PV envolvendo membros podem virar punição"
+            "• Não exponha dados pessoais (seu ou de terceiros)\n"
+            "• Problemas no PV envolvendo membros podem gerar punição"
         ),
         inline=False,
     )
 
     e.add_field(
-        name="⚖️ Moderação",
+        name="⚖️ Punições",
         value="Aviso → Mute → Kick → Ban (casos graves podem ser ban direto).",
         inline=False,
     )
 
     e.add_field(
-        name="✅ Para liberar o acesso",
-        value="Clique no botão **✅ Li e concordo** abaixo.",
+        name="✅ Liberação de acesso",
+        value="Clique no botão **✅ Li e concordo** para receber o cargo e liberar os canais.",
         inline=False,
     )
 
@@ -101,19 +108,17 @@ class RulesView(discord.ui.View):
             await interaction.response.send_message("Use isso dentro do servidor.", ephemeral=True)
             return
 
-        member: discord.Member = interaction.user
-        role_id = settings.member_role_id
-
-        # Se não configurou role, ainda confirma
+        role_id = getattr(settings, "member_role_id", None)
         if not role_id:
-            await interaction.response.send_message("✅ Confirmado! (Cargo não configurado no host.)", ephemeral=True)
+            await interaction.response.send_message("✅ Confirmado! (MEMBER_ROLE_ID não configurado.)", ephemeral=True)
             return
 
         role = interaction.guild.get_role(role_id)
         if role is None:
-            await interaction.response.send_message("⚠️ Cargo de membro não encontrado. Verifique MEMBER_ROLE_ID.", ephemeral=True)
+            await interaction.response.send_message("⚠️ Cargo não encontrado. Verifique MEMBER_ROLE_ID.", ephemeral=True)
             return
 
+        member: discord.Member = interaction.user
         if role in member.roles:
             await interaction.response.send_message("✅ Você já tem acesso liberado.", ephemeral=True)
             return
@@ -121,52 +126,31 @@ class RulesView(discord.ui.View):
         try:
             await member.add_roles(role, reason="Aceitou as regras (botão).")
         except discord.Forbidden:
-            await interaction.response.send_message("⛔ Sem permissão para dar cargos. Ajuste a hierarquia do bot.", ephemeral=True)
-            return
-        except Exception:
-            await interaction.response.send_message("⛔ Erro ao liberar acesso. Veja o host/logs.", ephemeral=True)
+            await interaction.response.send_message("⛔ Bot sem permissão/hierarquia pra dar cargos.", ephemeral=True)
             return
 
-        # Log opcional
-        if settings.log_channel_id:
-            ch = interaction.guild.get_channel(settings.log_channel_id)
-            if isinstance(ch, discord.TextChannel):
-                try:
-                    await ch.send(f"✅ {member.mention} aceitou as regras e recebeu {role.mention}.")
-                except Exception:
-                    pass
-
-        await interaction.response.send_message(f"✅ Acesso liberado! Bem-vindo(a), {member.mention} 💜", ephemeral=True)
+        await interaction.response.send_message("✅ Acesso liberado! Bem-vindo(a) 💜", ephemeral=True)
 
 
 class RulesCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        # view persistente (botão continua funcionando após restart)
-        self.bot.add_view(RulesView(bot))
+        self.bot.add_view(RulesView(bot))  # botão persistente
 
     @app_commands.command(name="setup_regras", description="Posta o embed de regras com botão (admin).")
     @app_commands.checks.has_permissions(administrator=True)
-    async def setup_regras(self, interaction: discord.Interaction, canal: discord.TextChannel, fixar: bool = True) -> None:
+    async def setup_regras(self, interaction: discord.Interaction, canal: discord.TextChannel, fixar: bool = True):
         await interaction.response.defer(ephemeral=True)
 
         embed = build_rules_embed(interaction.guild, self.bot.user)
         view = RulesView(self.bot)
 
-        try:
-            msg = await canal.send(embed=embed, view=view)
-        except Exception as e:
-            await interaction.followup.send(f"⛔ Não consegui postar: `{type(e).__name__}`", ephemeral=True)
-            return
-
+        msg = await canal.send(embed=embed, view=view)
         if fixar:
             try:
                 await msg.pin(reason="Regras do servidor (Robô Duki).")
             except discord.Forbidden:
                 await interaction.followup.send("⚠️ Postei, mas não consegui FIXAR (sem permissão).", ephemeral=True)
-                return
-            except Exception:
-                await interaction.followup.send("⚠️ Postei, mas falhou ao fixar.", ephemeral=True)
                 return
 
         await interaction.followup.send(f"✅ Regras postadas em {canal.mention}", ephemeral=True)
