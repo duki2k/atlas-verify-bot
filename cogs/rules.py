@@ -63,7 +63,7 @@ class RulesCog(commands.Cog):
             return
 
         # Texto vindo de variável de ambiente (mais fácil de editar sem mexer no código)
-        text = (settings.rules_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        text = (settings.rules_text or "").replace("\\n", "\n")
         if not text:
             await interaction.followup.send("⚠️ RULES_TEXT está vazio. Configure no host.", ephemeral=True)
             return
