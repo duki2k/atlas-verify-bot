@@ -1,36 +1,35 @@
-import time
+# main.py
 import discord
 from discord.ext import commands
-from discord import app_commands
 
-from config import load_settings
-from utils.logging_ import setup_logging
+from config import Settings
+from views.verify import VerifyRulesView
 
-settings = load_settings()
-logger = setup_logging()
+settings = Settings()
 
 intents = discord.Intents.default()
-intents.members = True  # join/leave
+intents.guilds = True
+intents.members = True  # importante para eventos com membros e melhor precisão de cache [web:173]
 
-# Se você quiser remover o WARNING "Privileged message content intent is missing",
-# ative isso e habilite "Message Content Intent" no Discord Developer Portal do bot.
-# Para slash commands puros, não é obrigatório.
-# intents.message_content = True
+class DukiBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",
+            intents=intents
+        )
+        self.settings = settings
 
-
-class RoboDukiBot(commands.Bot):
-    def __init__(self) -> None:
-        super().__init__(command_prefix="!", intents=intents)
-        self._ran = False
-        self._start_time = time.time()
-
-    async def setup_hook(self) -> None:
-        # Cogs atuais
+    async def setup_hook(self):
+        self.add_view(VerifyRulesView(self.settings.rules_role_id))
+        await self.load_extension("cogs.rules")
+        await self.load_extension("cogs.events")
         await self.load_extension("cogs.welcome")
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.cleanup")
-        await self.load_extension("cogs.messages")
-        await self.load_extension("cogs.rules")
+
+bot = DukiBot()
+bot.run(settings.discord_token)
+
 
         # Comandos apenas no canal admin
         async def only_admin_channel(interaction: discord.Interaction) -> bool:
