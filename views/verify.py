@@ -1,4 +1,3 @@
-# views/verify.py
 import discord
 
 class VerifyRulesView(discord.ui.View):
@@ -52,7 +51,7 @@ class VerifyRulesView(discord.ui.View):
         if role >= bot_member.top_role:
             return await interaction.response.send_message(
                 "Eu não consigo dar esse cargo porque ele está acima do meu cargo. "
-                "Peça para moverem meu cargo para cima do cargo de verificação.",
+                "Mova meu cargo para cima do cargo de verificação.",
                 ephemeral=True
             )
 
@@ -67,12 +66,12 @@ class VerifyRulesView(discord.ui.View):
         except discord.Forbidden:
             return await interaction.response.send_message(
                 "Não tenho permissão para dar esse cargo. "
-                "Verifique a permissão 'Gerenciar cargos' e a hierarquia dos cargos.",
+                "Verifique 'Gerenciar cargos' e a hierarquia.",
                 ephemeral=True
             )
         except discord.HTTPException:
             return await interaction.response.send_message(
-                "O Discord recusou a ação no momento. Tente novamente em instantes.",
+                "O Discord recusou a ação agora. Tente novamente em instantes.",
                 ephemeral=True
             )
 
