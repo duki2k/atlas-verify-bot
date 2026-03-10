@@ -1,7 +1,5 @@
-# main.py
 import discord
 from discord.ext import commands
-
 from config import Settings
 from views.verify import VerifyRulesView
 
@@ -9,18 +7,16 @@ settings = Settings()
 
 intents = discord.Intents.default()
 intents.guilds = True
-intents.members = True  # importante para eventos com membros e melhor precisão de cache [web:173]
+intents.members = True
 
 class DukiBot(commands.Bot):
     def __init__(self):
-        super().__init__(
-            command_prefix="!",
-            intents=intents
-        )
+        super().__init__(command_prefix="!", intents=intents)
         self.settings = settings
 
     async def setup_hook(self):
         self.add_view(VerifyRulesView(self.settings.rules_role_id))
+
         await self.load_extension("cogs.rules")
         await self.load_extension("cogs.events")
         await self.load_extension("cogs.welcome")
