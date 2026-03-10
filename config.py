@@ -1,18 +1,18 @@
+# config.py
 import os
 from dataclasses import dataclass
 
-
 @dataclass
 class Settings:
-    discord_token: str
-    bot_name: str
-    admin_channel_id: int
-    log_channel_id: int | None
-    dm_welcome_enabled: bool
+    discord_token: str = os.getenv("DISCORD_TOKEN", "")
+    admin_channel_id: int = int(os.getenv("ADMIN_CHANNEL_ID", "0"))
+    rules_role_id: int = int(os.getenv("RULES_ROLE_ID", "0"))
+    rules_text: str = os.getenv("RULES_TEXT", "")
+    bot_name: str = os.getenv("BOT_NAME", "Robô Duki")
 
-    announce_channel_id: int | None
-    rules_role_id: int | None
-    rules_text: str | None
+    events_category_id: int = int(os.getenv("EVENTS_CATEGORY_ID", "0"))
+    events_logs_channel_id: int = int(os.getenv("EVENTS_LOGS_CHANNEL_ID", "0"))
+    events_announce_channel_id: int = int(os.getenv("EVENTS_ANNOUNCE_CHANNEL_ID", "0"))
 
 
 def _get_int(name: str, default: int | None = None) -> int | None:
